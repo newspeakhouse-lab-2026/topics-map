@@ -45,6 +45,9 @@ NAMES_PATH = os.path.join(ROOT, "data", "cache", "names.json")
 # Normalised topic bodies (gitignored, name-bearing). Optional: the search
 # index falls back to titles when it is absent, e.g. on a fresh clone.
 BODIES_PATH = os.path.join(ROOT, "data", "bodies.json")
+# Semantic artefact from scripts/embed.py (gitignored). Optional: without it
+# map.html simply has no semantic layer.
+SEMANTIC_PATH = os.path.join(ROOT, "data", "embeddings.json")
 
 # Fields whose string values are opaque blobs (base64/quantised vectors). They
 # carry no readable text, so the name guard skips them. Empty until the
@@ -265,6 +268,33 @@ def main() -> int:
     forbidden = drop_terms(names)
     payload["search"] = build_search_index(topics, bodies, forbidden)
 
+    # Semantic layer from scripts/embed.py. Only the compact parts are inlined
+    # (coords, kNN, clusters, c-TF-IDF terms); the int8 vectors stay on disk.
+    semantic = None
+    try:
+        with open(SEMANTIC_PATH) as fh:
+            semantic = json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print("  note: data/embeddings.json absent -- no semantic layer "
+              "(run scripts/embed.py to add it)")
+    if semantic is not None:
+        expected = [t["id"] for t in topics]
+        if semantic.get("ids") != expected:
+            print("ERROR: data/embeddings.json is out of sync with data/raw.json "
+                  "(topic ids differ); re-run scripts/embed.py.", file=sys.stderr)
+            return 1
+        payload["semantic"] = {
+            "model": semantic["model"],
+            "dim": semantic["dim"],
+            "projection": semantic["projection"],
+            "clustering": semantic["clustering"],
+            "coords": semantic["coords"],
+            "clusters": semantic["clusters"],
+            "clusterTerms": semantic["clusterTerms"],
+            "knn": semantic["knn"],
+            "knnScores": semantic.get("knnScores"),
+        }
+
     with open(TEMPLATE_PATH) as fh:
         html = fh.read()
 
@@ -324,6 +354,12 @@ def main() -> int:
           f"{len(forbidden)} name term(s) excluded from the search index")
     print(f"search: {len(payload['search']['index'])} terms, "
           f"{len(bodies)} bodies indexed")
+    if semantic is not None:
+        clustering = semantic["clustering"]
+        print(f"semantic: {semantic['model']}, {semantic['dim']}d -> 2d, "
+              f"k={clustering['k']} clusters")
+    else:
+        print("semantic: not inlined")
     print(f"topics: {len(topics)} ({active} with >=1 heart)   "
           f"candidates: {len(electors)} shown, {dropped} zero-heart dropped")
     print(f"wrote {os.path.relpath(OUT_PATH, ROOT)} ({os.path.getsize(OUT_PATH) // 1024} KB)")

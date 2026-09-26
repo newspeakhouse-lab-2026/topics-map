@@ -58,6 +58,14 @@
   .empty{color:var(--muted);font-size:12.5px;font-style:italic}
   .legend{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);
           padding:6px 20px 0}
+  .legend .lg{cursor:pointer}
+  .legend .lg:hover{color:var(--ink)}
+  #clusterLegend{display:none;flex-wrap:wrap;gap:6px 16px;padding:6px 20px 0;font-size:11.5px;
+                 color:var(--muted)}
+  #clusterLegend .ck{display:flex;gap:6px;align-items:center;cursor:pointer}
+  #clusterLegend .ck:hover{color:var(--ink)}
+  #clusterLegend .sw{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+  #clusterLegend b{color:var(--ink)}
   .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px;
        vertical-align:-1px}
   #tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;z-index:10;
@@ -97,6 +105,10 @@
     <div class="seg" id="metricSeg"></div>
   </div>
   <div class="group">
+    <span class="lbl">layout</span>
+    <div class="seg" id="layoutSeg"></div>
+  </div>
+  <div class="group">
     <span class="lbl">min hearts</span>
     <input type="range" id="thr" min="0" max="6" step="1" value="2">
     <b id="thrOut" style="font-variant-numeric:tabular-nums">2</b>
@@ -108,10 +120,11 @@
 </div>
 
 <div class="legend">
-  <span><span class="dot" style="background:var(--cand)"></span>Fellowship Candidate</span>
-  <span><span class="dot" style="background:var(--primary)"></span>Topic</span>
+  <span class="lg" data-type="elector"><span class="dot" style="background:var(--cand)"></span>Fellowship Candidate</span>
+  <span class="lg" data-type="topic"><span class="dot" style="background:var(--primary)"></span>Topic</span>
   <span>hover a node to isolate it · click to pin · double-click a topic to open it on topic.forum</span>
 </div>
+<div class="legend" id="clusterLegend"></div>
 
 <main>
   <svg id="graph"></svg>
@@ -120,7 +133,7 @@
     <h2 id="listHead">Shortlist</h2>
     <ol class="list" id="list"></ol>
     <div id="relatedWrap" style="display:none;margin-top:18px">
-      <h2>Related topics</h2>
+      <h2>Related by supporters</h2>
       <div class="note" style="margin-bottom:8px">
         Shares at least two supporters with the focused topic, ranked by Jaccard overlap.
         Click one to pin it.
@@ -129,6 +142,10 @@
         blob — global clusters are not meaningful at 14 candidates. Local overlap like this is.
       </div>
       <ol class="list" id="relatedList"></ol>
+
+      <h2 style="margin-top:16px">Nearest in meaning</h2>
+      <div class="note" style="margin-bottom:8px" id="semanticNote"></div>
+      <ol class="list" id="semanticList"></ol>
     </div>
   </aside>
 </main>
@@ -162,7 +179,23 @@ const METRICS = {
 };
 
 const state = {metric:"l1", minHearts:2, labels:false, focus:null, pinned:new Set(),
-               query:"", matches:null};
+               query:"", matches:null, layout:"force", hoverFilter:null};
+
+/* ---------- persisted view state ----------
+   localStorage can throw or be absent on file:// depending on the browser, so
+   every access is guarded: persistence is a convenience, never a dependency. */
+const STORE_KEY = "faculty-topic-map:view:v1";
+function loadView(){
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {}; }
+  catch(e){ return {}; }
+}
+function saveView(){
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      layout: state.layout, metric: state.metric,
+      minHearts: state.minHearts, labels: state.labels }));
+  } catch(e){ /* private mode or file:// restriction -- ignore */ }
+}
 const pos = new Map();           // node id -> {x,y} carried across re-renders
 const fmt = d3.format(".3f");
 
@@ -177,6 +210,92 @@ document.getElementById("meta").textContent =
 // (verified for real, bogus and nonsense segments). Using a fixed placeholder
 // keeps candidate and host names out of this file entirely.
 const TOPIC_URL = t => "https://topic.forum/f/" + DATA.forum.slug + "/t/" + t.slug;
+
+/* ---------- semantic layer (from data/embeddings.json) ----------
+   Present only when embed.py has run; everything degrades to the plain force
+   graph when DATA.semantic is absent. */
+const SEMANTIC = DATA.semantic || null;
+const TOPIC_INDEX = new Map(DATA.topics.map((t,i) => ["t:" + t.id, i]));
+const CLUSTER_COLOURS = d3.schemeTableau10;
+
+// Node radius used for spacing. Taken from the GLOBAL per-metric maximum and
+// then maximised across metrics, so (a) it is never smaller than the radius the
+// graph actually draws for any metric, and (b) the layout does not shift when
+// the size metric or the heart threshold changes.
+const GLOBAL_MAX = {};
+for(const m of ["raw","l1","l2"]) GLOBAL_MAX[m] = d3.max(DATA.topics, t => t[m]) || 1;
+function spacingRadius(t){
+  let r = 4 + 21*t.devotion;
+  for(const m of ["raw","l1","l2"])
+    r = Math.max(r, 4 + 21*Math.sqrt(Math.max(t[m], 0)/GLOBAL_MAX[m]));
+  return r;
+}
+
+// t-SNE keeps near points near, so some topics land on top of each other. They
+// are pinned, so the simulation's collide force cannot separate them -- instead
+// relax the projected points apart here, then refit the relaxed cloud into the
+// viewport. Nothing overlaps and nothing leaves the screen, at the cost of a
+// small distortion of the (already un-faithful) projection.
+const layoutCache = new Map();
+function semanticLayout(W, H){
+  const key = W + "x" + H;
+  if(!layoutCache.has(key)) layoutCache.set(key, relaxLayout(W, H));
+  const pts = layoutCache.get(key);
+  return i => ({x: pts[i][0], y: pts[i][1]});
+}
+function relaxLayout(W, H){
+  const cs = SEMANTIC.coords, n = cs.length;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const c of cs){
+    if(c[0] < minX) minX = c[0]; if(c[0] > maxX) maxX = c[0];
+    if(c[1] < minY) minY = c[1]; if(c[1] > maxY) maxY = c[1];
+  }
+  const pad = 80;
+  const s = Math.min((W - 2*pad) / Math.max(maxX - minX, 1e-6),
+                     (H - 2*pad) / Math.max(maxY - minY, 1e-6));
+  const cx = (minX + maxX)/2, cy = (minY + maxY)/2;
+  const pts = cs.map(c => [W/2 + (c[0] - cx)*s, H/2 + (c[1] - cy)*s]);
+  const spacing = DATA.topics.map(spacingRadius);
+  const gap = 3;
+  for(let iter = 0; iter < 300; iter++){
+    let worst = 0;
+    for(let a = 0; a < n; a++){
+      for(let b = a + 1; b < n; b++){
+        const dx = pts[b][0] - pts[a][0], dy = pts[b][1] - pts[a][1];
+        const d = Math.max(Math.hypot(dx, dy), 0.001);
+        const need = spacing[a] + spacing[b] + gap;
+        if(d < need){
+          const push = (need - d)/2, ux = dx/d, uy = dy/d;
+          pts[a][0] -= ux*push; pts[a][1] -= uy*push;
+          pts[b][0] += ux*push; pts[b][1] += uy*push;
+          if(need - d > worst) worst = need - d;
+        }
+      }
+    }
+    if(worst < 0.5) break;          // converged
+  }
+  let bx = Infinity, bX = -Infinity, by = Infinity, bY = -Infinity;
+  for(const p of pts){
+    if(p[0] < bx) bx = p[0]; if(p[0] > bX) bX = p[0];
+    if(p[1] < by) by = p[1]; if(p[1] > bY) bY = p[1];
+  }
+  const margin = 45;
+  const f = Math.min((W - 2*margin)/Math.max(bX - bx, 1e-6),
+                     (H - 2*margin)/Math.max(bY - by, 1e-6));
+  const mx = (bx + bX)/2, my = (by + bY)/2;
+  for(const p of pts){ p[0] = W/2 + (p[0] - mx)*f; p[1] = H/2 + (p[1] - my)*f; }
+  return pts;
+}
+
+// Restore the saved view *after* SEMANTIC exists, so a stale "semantic" layout
+// is rejected when this build has no embeddings.
+(function restoreView(){
+  const saved = loadView();
+  if(saved.metric && METRICS[saved.metric]) state.metric = saved.metric;
+  if(Number.isFinite(saved.minHearts)) state.minHearts = Math.max(0, Math.min(6, saved.minHearts | 0));
+  state.labels = !!saved.labels;
+  if(saved.layout === "semantic" && SEMANTIC) state.layout = "semantic";
+})();
 
 /* ---------- lexical search ----------
    BM25 over the index build.py precomputed from title + body, so the page
@@ -242,7 +361,6 @@ let nodes=[], links=[], sim=null;
 let lastShown=[], lastRadius=null;
 
 function build(){
-  const maxTotal = d3.max(DATA.electors, e => e.total) || 1;
   const shown = DATA.topics.filter(t => t.raw >= state.minHearts);
   const maxMetric = d3.max(shown, t => t[state.metric]) || 1;
 
@@ -259,10 +377,18 @@ function build(){
     return state.metric === "devotion" ? 4 + 21*v
                                        : 4 + 21*Math.sqrt(Math.max(v,0)/maxMetric);
   };
-  const rElector = d => 6 + 14*Math.sqrt(d.total/maxTotal);
+  // Uniform candidate size. A candidate's reach is already explicit in the
+  // tooltip and in how many topics they attach to; encoding it again as radius
+  // just let the four prolific hearters visually swamp the graph.
+  const rElector = () => 11;
   const radius = d => d.type === "elector" ? rElector(d) : rTopic(d);
-  const colour = d => getComputedStyle(document.body)
-    .getPropertyValue(d.type === "elector" ? "--cand" : "--primary").trim();
+  const css = name => getComputedStyle(document.body).getPropertyValue(name).trim();
+  const colour = d => {
+    if(d.type === "elector") return css("--cand");
+    if(state.layout === "semantic" && SEMANTIC)
+      return CLUSTER_COLOURS[SEMANTIC.clusters[TOPIC_INDEX.get(d.id)] % CLUSTER_COLOURS.length];
+    return css("--primary");
+  };
   return {radius, colour, shown};
 }
 
@@ -291,6 +417,32 @@ function render(){
     else { n.x = W/2 + (Math.random()-.5)*W*.8; n.y = H*.6 + (Math.random()-.5)*H*.3; }
   }
 
+  // Semantic mode: pin topics to their t-SNE coords and drop each candidate at
+  // the centre of the topics it hearted. Only candidates move; the map is fixed.
+  const sem = state.layout === "semantic" && !!SEMANTIC;
+  if(sem){
+    const place = semanticLayout(W, H);
+    for(const n of nodes){
+      if(n.type !== "topic"){ n.fx = null; n.fy = null; continue; }
+      const p = place(TOPIC_INDEX.get(n.id));
+      n.x = p.x; n.y = p.y; n.fx = p.x; n.fy = p.y;
+    }
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const acc = new Map();
+    for(const l of links){          // source/target are ids until forceLink resolves them
+      const tn = byId.get(l.target), en = byId.get(l.source);
+      if(!tn || !en) continue;
+      const a = acc.get(en.id) || {x:0, y:0, n:0};
+      a.x += tn.x; a.y += tn.y; a.n++;
+      acc.set(en.id, a);
+    }
+    for(const n of nodes){
+      if(n.type !== "elector") continue;
+      const a = acc.get(n.id);
+      if(a){ n.x = a.x/a.n; n.y = a.y/a.n; }
+    }
+  }
+
   gLinks = gZoom.append("g").attr("class","links");
   gNodes = gZoom.append("g").attr("class","nodes");
 
@@ -303,7 +455,9 @@ function render(){
         .on("start",(ev,d)=>{ if(!ev.active) sim.alphaTarget(.25).restart(); d.fx=d.x; d.fy=d.y; })
         .on("drag",(ev,d)=>{ d.fx=ev.x; d.fy=ev.y; })
         .on("end",(ev,d)=>{ sim.alphaTarget(0);
-                            if(!state.pinned.has(d.id)){ d.fx=null; d.fy=null; } }));
+                            const stick = state.pinned.has(d.id) ||
+                                         (state.layout === "semantic" && d.type === "topic");
+                            if(!stick){ d.fx=null; d.fy=null; } }));
 
   node.append("circle").attr("class","node")
       .attr("r",radius).attr("fill",colour)
@@ -325,16 +479,23 @@ function render(){
       .on("dblclick",(ev,d)=>{ ev.stopPropagation(); ev.preventDefault();
         if(d.type === "topic") window.open(TOPIC_URL(d), "_blank", "noopener");
       });
-  svg.on("click", ()=> { state.pinned.clear(); for(const n of nodes){ n.fx=null; n.fy=null; } selectRow(null); });
+  svg.on("click", ()=> { state.pinned.clear();
+    for(const n of nodes){
+      if(state.layout === "semantic" && n.type === "topic") continue;  // stay on the map
+      n.fx=null; n.fy=null;
+    }
+    selectRow(null); });
 
   sim = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id(d=>d.id)
-             .distance(l => 62 + radius(l.source)*1.1 + radius(l.target)*1.5).strength(.2))
-    .force("charge", d3.forceManyBody().strength(d => d.type === "elector" ? -520 : -190))
+             .distance(l => sem ? 34 + radius(l.source) + radius(l.target)
+                                : 62 + radius(l.source)*1.1 + radius(l.target)*1.5)
+             .strength(sem ? .85 : .2))
+    .force("charge", d3.forceManyBody().strength(d => d.type === "elector" ? -520 : (sem ? -30 : -190)))
     .force("collide", d3.forceCollide().radius(d => radius(d)+9).strength(.95))
-    .force("x", d3.forceX(W/2).strength(.012))
+    .force("x", d3.forceX(W/2).strength(sem ? 0 : .012))
     .force("y", d3.forceY(d => d.type === "elector" ? 80 : H*.62)
-             .strength(d => d.type === "elector" ? .4 : .035))
+             .strength(d => sem ? 0 : (d.type === "elector" ? .4 : .035)))
     .on("tick", () => {
       link.each(function(d){
         const a = d.source, b = d.target;
@@ -350,6 +511,7 @@ function render(){
 
   buildList(shown, radius);
   applyLabels();
+  renderClusterLegend();
   applyFocus();
 }
 
@@ -374,9 +536,36 @@ function applyFocus(){
       if(s === f.id || t === f.id){ keepLinks.add(l); keep.add(s); keep.add(t); }
     }
   }
-  const m = state.matches;
-  gNodes.selectAll("g").classed("dim", n => (keep && !keep.has(n.id)) || (m && !m.has(n.id)));
-  gLinks.selectAll("line").classed("fade", l => keepLinks ? !keepLinks.has(l) : false);
+  const m = state.matches, h = state.hoverFilter;
+  gNodes.selectAll("g").classed("dim", n =>
+    (keep && !keep.has(n.id)) || (m && !m.has(n.id)) || (h && !hoverPass(n)));
+  gLinks.selectAll("line").classed("fade", l => {
+    if(keepLinks) return !keepLinks.has(l);
+    if(h && h.kind === "cluster") return clusterOfNode(l.target.id || l.target) !== h.id;
+    return false;
+  });
+}
+
+// Node id -> cluster. Undefined for electors (only topics carry a cluster), so
+// a cluster hover isolates the cluster's topics and dims everything else.
+function clusterOfNode(nodeId){
+  if(!SEMANTIC) return null;
+  const i = TOPIC_INDEX.get(nodeId);
+  return i === undefined ? null : SEMANTIC.clusters[i];
+}
+
+// Legend hover. A cluster hover keeps that cluster's topics; a kind hover keeps
+// one node type. Labels are only forced by the cluster case (see labelText).
+function hoverPass(n){
+  const h = state.hoverFilter;
+  if(!h) return true;
+  return h.kind === "cluster"
+    ? n.type === "topic" && clusterOfNode(n.id) === h.id
+    : n.type === h.type;
+}
+function clusterHoverHit(n){
+  const h = state.hoverFilter;
+  return !!h && h.kind === "cluster" && n.type === "topic" && clusterOfNode(n.id) === h.id;
 }
 
 const tip = document.getElementById("tip");
@@ -470,14 +659,41 @@ function applySearch(){
 function labelText(d){
   if(d.type === "elector") return d.initials;
   const matched = state.matches && state.matches.has(d.id);
-  if(!(state.labels || d.raw >= 5 || matched)) return "";
+  if(!(state.labels || d.raw >= 5 || matched || clusterHoverHit(d))) return "";
   return d.title.length > 34 ? d.title.slice(0,32) + "…" : d.title;
 }
 function applyLabels(){
   if(!gNodes) return;
   gNodes.selectAll("text.label")
     .text(labelText)
-    .classed("match", d => d.type === "topic" && !!state.matches && state.matches.has(d.id));
+    .classed("match", d => d.type === "topic" &&
+      ((!!state.matches && state.matches.has(d.id)) || clusterHoverHit(d)));
+}
+
+// The cluster key only makes sense in semantic mode, where topics are coloured
+// by k-means group. Terms are the c-TF-IDF keywords for each cluster.
+function renderClusterLegend(){
+  const el = document.getElementById("clusterLegend");
+  if(!(state.layout === "semantic" && SEMANTIC)){
+    if(state.hoverFilter && state.hoverFilter.kind === "cluster") state.hoverFilter = null;
+    el.style.display = "none"; el.innerHTML = ""; return;
+  }
+  el.style.display = "flex";
+  el.title = "Clusters are k-means in the full " + SEMANTIC.dim + "-d embedding " +
+    "space, NOT on this 2-D map, so same-coloured topics are not always " +
+    "neighbours. Hover a cluster to isolate it.";
+  el.innerHTML = "";
+  SEMANTIC.clusterTerms.forEach((terms, i) => {
+    const span = document.createElement("span");
+    span.className = "ck";
+    span.style.cursor = "pointer";
+    span.innerHTML = "<span class='sw' style='background:" +
+      CLUSTER_COLOURS[i % CLUSTER_COLOURS.length] + "'></span><b>" + i + "</b>&nbsp;" +
+      esc(terms.slice(0, 4).join(", "));
+    span.onmouseenter = () => { state.hoverFilter = {kind:"cluster", id:i}; applyFocus(); applyLabels(); };
+    span.onmouseleave = () => { state.hoverFilter = null; applyFocus(); applyLabels(); };
+    el.appendChild(span);
+  });
 }
 function selectRow(id){
   document.querySelectorAll("#list li").forEach(li =>
@@ -490,9 +706,22 @@ function pinAndZoom(n){
     zoom.transform, d3.zoomIdentity.translate(W/2 - n.x, H/2 - n.y).scale(1.1));
   setFocus(n);
 }
+function relatedRow(rank, topic, value){
+  const li = document.createElement("li");
+  li.dataset.id = "t:" + topic.id;
+  li.innerHTML = "<span class='rank'>" + (rank+1) + "</span>" +
+    "<span class='ttl'><a href='" + TOPIC_URL(topic) + "' target='_blank' rel='noopener' " +
+    "style='color:inherit'>" + esc(topic.title) + "</a></span>" +
+    "<span class='val'>" + value + "<small>" + topic.raw + " ❤️</small></span>";
+  li.onclick = () => {
+    const n = nodes.find(n => n.id === li.dataset.id);
+    if(n) pinAndZoom(n); else window.open(TOPIC_URL(topic), "_blank", "noopener");
+  };
+  return li;
+}
+
 function renderRelated(t){
   const wrap = document.getElementById("relatedWrap");
-  const ol = document.getElementById("relatedList");
   if(!t || !gNodes){ wrap.style.display = "none"; return; }
   const tid = t.id.indexOf("t:") === 0 ? t.id.slice(2) : t.id;
   const shown = DATA.topics.filter(x => x.raw >= state.minHearts);
@@ -500,19 +729,33 @@ function renderRelated(t){
     .map(x => ({t:x, j:jaccard(t, x)}))
     .filter(r => r.j >= 0.2)
     .sort((a,b) => b.j - a.j).slice(0, 8);
+  const ol = document.getElementById("relatedList");
   ol.innerHTML = "";
   if(!rows.length){
     ol.innerHTML = "<div class='empty'>No topic shares enough supporters with this one.</div>";
   } else {
-    rows.forEach((r, i) => {
-      const li = document.createElement("li");
-      li.dataset.id = "t:" + r.t.id;
-      li.innerHTML = "<span class='rank'>" + (i+1) + "</span>" +
-        "<span class='ttl'><a href='" + TOPIC_URL(r.t) + "' target='_blank' rel='noopener' " +
-        "style='color:inherit'>" + esc(r.t.title) + "</a></span>" +
-        "<span class='val'>" + Math.round(r.j*100) + "%<small>" + r.t.raw + " ❤️</small></span>";
-      li.onclick = () => { const n = nodes.find(n => n.id === li.dataset.id); if(n) pinAndZoom(n); };
-      ol.appendChild(li);
+    rows.forEach((r, i) => ol.appendChild(relatedRow(i, r.t, Math.round(r.j*100) + "%")));
+  }
+
+  // Semantic neighbours need no shared supporters at all, so this list still
+  // says something when the Jaccard panel is empty -- which at n=14 is often.
+  const sl = document.getElementById("semanticList");
+  const note = document.getElementById("semanticNote");
+  sl.innerHTML = "";
+  if(!SEMANTIC){
+    note.textContent = "Run scripts/embed.py and rebuild to enable semantic neighbours.";
+  } else {
+    const idx = TOPIC_INDEX.get("t:" + tid);
+    const cluster = SEMANTIC.clusters[idx];
+    note.innerHTML = "Cluster " + cluster + " <b>" +
+      esc((SEMANTIC.clusterTerms[cluster] || []).slice(0, 5).join(", ")) + "</b>.<br>" +
+      "Cosine nearest neighbours of the title+body embedding (" + esc(SEMANTIC.model) +
+      "). Clusters are computed in the full " + SEMANTIC.dim + "-d space, not on this " +
+      "map, so same-cluster topics are not always adjacent here. 2D distances are " +
+      "not reliable; these neighbour lists are. Click to pin.";
+    (SEMANTIC.knn[idx] || []).forEach((j, i) => {
+      const scores = SEMANTIC.knnScores ? SEMANTIC.knnScores[idx][i] : null;
+      sl.appendChild(relatedRow(i, DATA.topics[j], scores === null ? "" : scores.toFixed(2)));
     });
   }
   wrap.style.display = "block";
@@ -528,11 +771,35 @@ for(const [k,m] of Object.entries(METRICS)){
     state.metric = k;
     [...seg.children].forEach(x => x.setAttribute("aria-pressed", x.dataset.k === k));
     document.getElementById("metricNote").innerHTML = m.note;
+    saveView();
     gZoom.selectAll("*").remove(); render();
   };
   seg.appendChild(b);
 }
 document.getElementById("metricNote").innerHTML = METRICS[state.metric].note;
+
+/* ---------- layout toggle ---------- */const layoutSeg = document.getElementById("layoutSeg");
+for(const [k, label] of [["force","force"], ["semantic","semantic"]]){
+  const b = document.createElement("button");
+  b.textContent = label; b.dataset.k = k;
+  b.setAttribute("aria-pressed", k === state.layout);
+  if(k === "semantic" && !SEMANTIC){ b.disabled = true; b.title = "needs data/embeddings.json"; }
+  b.onclick = () => {
+    if(k === state.layout) return;
+    state.layout = k;
+    [...layoutSeg.children].forEach(x => x.setAttribute("aria-pressed", x.dataset.k === k));
+    state.pinned.clear(); pos.clear(); saveView();
+    gZoom.selectAll("*").remove(); render();
+  };
+  layoutSeg.appendChild(b);
+}
+
+/* ---------- legend hover: isolate a node type ----------
+   Deliberately does NOT touch labels: only the cluster key forces titles. */
+document.querySelectorAll(".legend .lg").forEach(el => {
+  el.onmouseenter = () => { state.hoverFilter = {kind:"type", type:el.dataset.type}; applyFocus(); };
+  el.onmouseleave = () => { state.hoverFilter = null; applyFocus(); };
+});
 
 const searchInput = document.getElementById("search");
 let searchTimer;
@@ -548,14 +815,24 @@ const thr = document.getElementById("thr");
 thr.oninput = () => {
   state.minHearts = +thr.value;
   document.getElementById("thrOut").textContent = thr.value;
+  saveView();
   gZoom.selectAll("*").remove(); render();
 };
 document.getElementById("labels").onchange = e => {
-  state.labels = e.target.checked; applyLabels();
+  state.labels = e.target.checked; saveView(); applyLabels();
 };
 document.getElementById("reset").onclick = () => {
   state.pinned.clear(); pos.clear();
   searchInput.value = ""; state.query = ""; state.matches = null;
+  // reset view also forgets saved preferences, so "reset" means reset
+  state.metric = "l1"; state.minHearts = 2; state.labels = false;
+  state.layout = "force"; state.hoverFilter = null;
+  try { localStorage.removeItem(STORE_KEY); } catch(e){}
+  [...seg.children].forEach(x => x.setAttribute("aria-pressed", x.dataset.k === "l1"));
+  [...layoutSeg.children].forEach(x => x.setAttribute("aria-pressed", x.dataset.k === "force"));
+  document.getElementById("metricNote").innerHTML = METRICS.l1.note;
+  thr.value = 2; document.getElementById("thrOut").textContent = "2";
+  document.getElementById("labels").checked = false;
   svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
   gZoom.selectAll("*").remove(); render();
 };
@@ -563,6 +840,11 @@ document.getElementById("reset").onclick = () => {
 let t;
 addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => {
   gZoom.selectAll("*").remove(); render(); }, 250); });
+
+// Reflect restored state in the controls before the first paint.
+thr.value = state.minHearts;
+document.getElementById("thrOut").textContent = state.minHearts;
+document.getElementById("labels").checked = state.labels;
 
 render();
 })();

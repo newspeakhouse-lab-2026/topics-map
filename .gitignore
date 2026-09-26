@@ -3,9 +3,15 @@ data/tmp/
 data/cache/
 # normalised topic bodies (name-bearing; never tracked)
 data/bodies.json
+# semantic artefact from scripts/embed.py (regenerable, name-filtered)
+data/embeddings.json
 
 # tooling
 node_modules/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Phase-3 embedding stage: local deps + downloaded model (regenerable, large)
+.embed-deps/
+.venv/

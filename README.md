@@ -9,14 +9,26 @@ inlined). Open it from disk, or drop it on any static host. No server, no
 network, no build step at view time.
 
 ```
-python3 scripts/fetch.py     # topic.forum -> data/raw.json   (network)
-python3 scripts/build.py     # data/raw.json -> map.html      (offline)
+python3    scripts/fetch.py    # topic.forum -> data/raw.json      (network)
+python3.11 scripts/embed.py    # bodies -> data/embeddings.json     (model)
+python3    scripts/build.py    # raw + embeddings -> map.html       (offline)
 ```
 
 `fetch.py` also writes two **gitignored** files: `data/bodies.json` (topic
-bodies normalised to plain text, for the planned semantic work) and
+bodies normalised to plain text, for the semantic layer) and
 `data/cache/names.json` (the name list `build.py` checks against). Body text
 routinely names members, so it must never reach a tracked file — see Privacy.
+
+`embed.py` is the **only** stage with third-party dependencies, so `build.py`
+stays stdlib-only and offline. It is also the only stage that needs Python 3.11
+rather than 3.14: `torch`/`onnxruntime` publish no cp314 wheels, so it uses
+`fastembed` (ONNX Runtime, ~10x smaller than torch) with
+`sentence-transformers/all-MiniLM-L6-v2`. See that script's docstring for the
+install line — this environment has no working venv and blocks TLS to PyPI, so
+it installs into a project-local `.embed-deps/` that the script puts on
+`sys.path`. It emits `data/embeddings.json` (gitignored): 2D coords, kNN
+neighbours, k-means clusters with c-TF-IDF terms, and int8 vectors. `build.py`
+inlines only the compact parts (~7 KB).
 
 Hover a node to isolate its neighbourhood, click to pin, double-click a topic
 to open it on topic.forum. The sidebar ranks topics at or above the threshold
@@ -29,6 +41,18 @@ sideways glance at the sidebar. It is lexical, not semantic: `build.py` inlines
 the whole index, so the page still works offline, and only the query is analysed
 in the browser. Hits below the heart threshold still appear in the list and open
 on topic.forum when they are not on the graph.
+
+Switch **layout** from `force` to `semantic` to pin topics at their t-SNE
+coordinates from the title+body embedding, coloured by k-means cluster (the key
+shows each cluster's c-TF-IDF terms; hover one to isolate it and reveal that
+cluster's titles). The Candidate/Topic key items isolate that node type on hover
+too, but deliberately leave labelling alone. Candidates are
+drawn at a **uniform radius** and dropped at the centre of the topics they
+hearted, so the candidate→topic structure survives the switch. Focusing a topic
+also lists its **nearest neighbours in meaning** — cosine neighbours of the
+embedding — which, unlike the supporter panel, still says something for a topic
+only one person hearted. View choices (layout, metric, threshold, labels) are
+tucked into `localStorage` and restored on reload; `reset view` clears them.
 
 ## The four metrics
 
@@ -49,6 +73,7 @@ devotion  = l1 / raw       mean supporter devotion     (== devotionScore)
 Each candidate spreads a total influence of 1 across their hearts, so hearting
 fewer topics makes each heart count for more. `build.py` refuses to build
 unless its `raw` reproduces the server's `heartCount` on every topic, so the
+
 derived scores can be trusted.
 
 Default view is `l1` with a floor of 2 hearts. Note `devotion` is an *intensity*
@@ -78,6 +103,9 @@ cohort an initial plus a heart pattern may still identify someone.
 `data/cache/` holds raw API responses (which do contain names) and is gitignored
 — do not commit it. `data/bodies.json` holds normalised topic bodies and is
 likewise gitignored: bodies name members even more often than hearts do.
+`data/embeddings.json` is gitignored too, and `embed.py` strips name tokens
+from the c-TF-IDF cluster terms before writing it, so a cluster keyword can
+never be a member's name.
 
 As a backstop, `build.py` refuses to write `map.html` if any name, person slug
 or name token from `data/cache/names.json` appears anywhere readable in the
@@ -87,6 +115,29 @@ opaque blobs (future embedding vectors) must be listed in `OPAQUE_KEYS` so the
 scan skips them — never for readable text.
 
 ## Notes that shaped the design
+
+- **The semantic layer is precomputed, never live.** `embed.py` does the model
+  work once; `build.py` inlines coordinates and neighbour lists, so the page
+  stays offline and `build.py` stays dependency-free. Embeddings are fully
+  deterministic here (fixed seed, PCA init, ONNX): re-running produced
+  byte-identical vectors, coords, clusters and neighbours.
+- **The semantic layout is relaxed, not raw t-SNE.** Topics are pinned, so the
+  simulation's collide force cannot separate them, and t-SNE routinely drops
+  topics on top of each other. Scaling the projection up just clips nodes
+  (measured: 8 off-screen at 1.2×, 15 at 1.4×). Instead `relaxLayout()` pushes
+  overlapping pairs apart using worst-case radii — so the guarantee holds for
+  *every* size metric — then refits the cloud to the viewport. 0 overlaps for
+  all four metrics, nothing off-screen, ~33 ms, and the layout is independent of
+  metric and threshold. The cost is a small distortion of a projection that was
+  never faithful to begin with.
+- **Be honest about the clusters.** k-means on MiniLM embeddings separates the
+    150 topics into 7 groups with a **silhouette of 0.04** — far apart in
+    meaning is not the same as well-separated in vector space. Treat the cluster
+    labels as navigation, and the kNN neighbour lists as the trustworthy signal.
+- **The two "related" panels answer different questions** and both are kept:
+  overlap of *supporters* (Jaccard) measures shared curation, while semantic
+  neighbours measure shared *meaning* and need no shared supporters at all —
+  which matters when the median topic has only 2 hearts.
 
 - **Search is a precomputed BM25 index, not a query encoder.** Inlining the
   index keeps the single file offline; the cost is that the query analyser
