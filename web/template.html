@@ -32,6 +32,10 @@
   .seg button[aria-pressed="true"]{background:var(--primary);color:#fff}
   input[type=range]{width:130px;accent-color:var(--primary)}
   .tog{display:flex;gap:5px;align-items:center;font-size:12.5px;cursor:pointer;user-select:none}
+  .search input{width:240px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;
+                background:transparent;color:var(--ink);font:inherit;font-size:12.5px}
+  .search input:focus{outline:2px solid color-mix(in srgb,var(--primary) 45%,transparent);
+                      outline-offset:1px}
   main{display:flex;height:calc(100vh - 108px);min-height:420px}
   #graph{flex:1;display:block;cursor:grab}
   #graph:active{cursor:grabbing}
@@ -67,6 +71,7 @@
   .label{pointer-events:none}
   .lab-elector{fill:var(--ink);font-weight:700}
   .lab-topic{fill:var(--muted)}
+  .lab-topic.match{fill:var(--primary);font-weight:700}
   .link{stroke:#94a0b8;stroke-opacity:.16;fill:none}
   .dim{opacity:.06 !important}
   .fade{stroke-opacity:.04 !important}
@@ -82,6 +87,11 @@
 </header>
 
 <div class="controls">
+  <div class="group search">
+    <span class="lbl">search</span>
+    <input type="search" id="search" placeholder="causal analysis…"
+           autocomplete="off" spellcheck="false">
+  </div>
   <div class="group">
     <span class="lbl">size</span>
     <div class="seg" id="metricSeg"></div>
@@ -151,7 +161,8 @@ const METRICS = {
                   "Do not use it as a session threshold."}
 };
 
-const state = {metric:"l1", minHearts:2, labels:false, focus:null, pinned:new Set()};
+const state = {metric:"l1", minHearts:2, labels:false, focus:null, pinned:new Set(),
+               query:"", matches:null};
 const pos = new Map();           // node id -> {x,y} carried across re-renders
 const fmt = d3.format(".3f");
 
@@ -167,6 +178,53 @@ document.getElementById("meta").textContent =
 // keeps candidate and host names out of this file entirely.
 const TOPIC_URL = t => "https://topic.forum/f/" + DATA.forum.slug + "/t/" + t.slug;
 
+/* ---------- lexical search ----------
+   BM25 over the index build.py precomputed from title + body, so the page
+   stays offline and only the query is analysed here. stem()/analyze() MUST
+   stay byte-for-byte in step with their Python twins in scripts/build.py. */
+const STOPWORDS = new Set(("a about above after again against all am an and any are as at be "+
+  "because been before being below between both but by can cannot could did do does doing down "+
+  "during each few for from further had has have having he her here hers herself him himself "+
+  "his how i if in into is it its itself just me more most my myself no nor not now of off on "+
+  "once only or other our ours ourselves out over own same she should so some such than that "+
+  "the their theirs them themselves then there these they this those through to too under "+
+  "until up very was we were what when where which while who whom why will with you your yours "+
+  "yourself yourselves").split(" "));
+const SUFFIXES = [["ies","y",3],["sses","ss",2],["shes","sh",2],["ches","ch",2],
+                  ["xes","x",2],["zes","z",2]];
+function stem(w){
+  for(const [suf,rep,min] of SUFFIXES){
+    if(w.endsWith(suf) && w.length - suf.length >= min) return w.slice(0, w.length - suf.length) + rep;
+  }
+  if(w.endsWith("s") && w.length > 3 && !w.endsWith("ss") && !w.endsWith("us") && !w.endsWith("is"))
+    return w.slice(0, -1);
+  return w;
+}
+function analyze(text){
+  const out = [];
+  for(const t of (text.toLowerCase().match(/[a-z0-9]+/g) || []))
+    if(t.length >= 2 && !STOPWORDS.has(t)) out.push(stem(t));
+  return out;
+}
+const SEARCH = DATA.search;
+const DOCLEN = SEARCH.docs, AVG = SEARCH.avg || 1, NDOCS = DOCLEN.length;
+function bm25(query){
+  const scores = new Float64Array(NDOCS);
+  for(const term of new Set(analyze(query))){
+    const post = SEARCH.index[term];
+    if(!post) continue;
+    const df = post.length / 2;
+    const idf = Math.log(1 + (NDOCS - df + 0.5) / (df + 0.5));
+    for(let p = 0; p < post.length; p += 2){
+      const d = post[p], tf = post[p+1];
+      const norm = tf * (SEARCH.k1 + 1) /
+        (tf + SEARCH.k1 * (1 - SEARCH.b + SEARCH.b * (DOCLEN[d] || 0) / AVG));
+      scores[d] += idf * norm;
+    }
+  }
+  return scores;
+}
+
 // Supporter-set overlap. Used for the "related topics" panel.
 // Tested at n=14: connected-components clustering puts every topic in one blob
 // (the dominant candidates overlap at Jaccard 0.30-0.53), so global clusters
@@ -181,6 +239,7 @@ function jaccard(a, b){
 
 /* ---------- graph build ---------- */
 let nodes=[], links=[], sim=null;
+let lastShown=[], lastRadius=null;
 
 function build(){
   const maxTotal = d3.max(DATA.electors, e => e.total) || 1;
@@ -221,6 +280,7 @@ svg.append("defs").append("marker")
 
 function render(){
   const {radius, colour, shown} = build();
+  lastShown = shown; lastRadius = radius;
   const W = svg.node().clientWidth, H = svg.node().clientHeight;
 
   // seed positions so the layout does not jump between metric/threshold changes
@@ -253,9 +313,7 @@ function render(){
       .attr("class", d => "label " + (d.type === "elector" ? "lab-elector" : "lab-topic"))
       .attr("dy", d => radius(d) + 10)
       .attr("text-anchor","middle")
-      .attr("font-size", d => d.type === "elector" ? 10.5 : 9.5)
-      .text(d => d.type === "elector" ? d.initials
-                 : (state.labels || d.raw >= 5) ? (d.title.length > 34 ? d.title.slice(0,32)+"…" : d.title) : "");
+      .attr("font-size", d => d.type === "elector" ? 10.5 : 9.5);
 
   node.on("mouseover",(ev,d)=> setFocus(d, ev))
       .on("mousemove", ev => moveTip(ev))
@@ -291,6 +349,7 @@ function render(){
     });
 
   buildList(shown, radius);
+  applyLabels();
   applyFocus();
 }
 
@@ -306,15 +365,18 @@ function setFocus(d, ev){
 function applyFocus(){
   const f = state.focus;
   if(!gNodes) return;
-  if(!f){ gNodes.selectAll("g").classed("dim",false); gLinks.selectAll("line").classed("fade",false); return; }
-  const keep = new Set([f.id]);
-  const keepLinks = new Set();
-  for(const l of links){
-    const s = l.source.id || l.source, t = l.target.id || l.target;
-    if(s === f.id || t === f.id){ keepLinks.add(l); keep.add(s); keep.add(t); }
+  let keep = null, keepLinks = null;
+  if(f){
+    keep = new Set([f.id]);
+    keepLinks = new Set();
+    for(const l of links){
+      const s = l.source.id || l.source, t = l.target.id || l.target;
+      if(s === f.id || t === f.id){ keepLinks.add(l); keep.add(s); keep.add(t); }
+    }
   }
-  gNodes.selectAll("g").classed("dim", n => !keep.has(n.id));
-  gLinks.selectAll("line").classed("fade", l => !keepLinks.has(l));
+  const m = state.matches;
+  gNodes.selectAll("g").classed("dim", n => (keep && !keep.has(n.id)) || (m && !m.has(n.id)));
+  gLinks.selectAll("line").classed("fade", l => keepLinks ? !keepLinks.has(l) : false);
 }
 
 const tip = document.getElementById("tip");
@@ -354,25 +416,68 @@ function esc(s){ return String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;
 
 /* ---------- shortlist ---------- */
 function buildList(shown, radius){
-  const rows = shown.slice().sort((a,b) => b[state.metric] - a[state.metric]);
-  document.getElementById("listHead").textContent =
-    "Shortlist · " + rows.length + " topics ≥ " + state.minHearts + " ❤️";
+  const q = state.query.trim();
+  let rows;
+  if(q){
+    const scores = bm25(q);
+    rows = DATA.topics.map((t,i) => ({t, val:scores[i]}))
+             .filter(r => r.val > 0).sort((a,b) => b.val - a.val).slice(0, 30);
+    state.matches = new Set(rows.map(r => "t:" + r.t.id));
+    document.getElementById("listHead").textContent =
+      "Search · " + rows.length + " match" + (rows.length === 1 ? "" : "es");
+  } else {
+    rows = shown.slice().sort((a,b) => b[state.metric] - a[state.metric])
+                .map(t => ({t, val:t[state.metric]}));
+    state.matches = null;
+    document.getElementById("listHead").textContent =
+      "Shortlist · " + rows.length + " topics ≥ " + state.minHearts + " ❤️";
+  }
   const ol = document.getElementById("list");
   ol.innerHTML = "";
-  if(!rows.length){ ol.innerHTML = "<div class='empty'>No topics meet the threshold.</div>"; return; }
-  rows.forEach((t,i) => {
+  if(!rows.length){
+    ol.innerHTML = "<div class='empty'>" +
+      (q ? "Nothing matched that query." : "No topics meet the threshold.") + "</div>";
+    return;
+  }
+  rows.forEach((row,i) => {
+    const t = row.t;
     const li = document.createElement("li");
     li.dataset.id = "t:" + t.id;
     li.innerHTML = "<span class='rank'>" + (i+1) + "</span>" +
       "<span class='ttl'><a href='" + TOPIC_URL(t) + "' target='_blank' rel='noopener' " +
       "style='color:inherit'>" + esc(t.title) + "</a></span>" +
-      "<span class='val'>" + fmt(t[state.metric]) +
+      "<span class='val'>" + (q ? row.val.toFixed(2) : fmt(row.val)) +
       "<small>" + t.raw + " ❤️</small></span>";
     li.onmouseenter = () => { const n = nodes.find(n => n.id === li.dataset.id); if(n) setFocus(n); };
     li.onmouseleave = () => { setFocus(null); hideTip(); };
-    li.onclick = () => { const n = nodes.find(n => n.id === li.dataset.id); if(n) pinAndZoom(n); };
+    li.onclick = () => { const n = nodes.find(n => n.id === li.dataset.id);
+      if(n) pinAndZoom(n); else window.open(TOPIC_URL(t), "_blank", "noopener"); };
     ol.appendChild(li);
   });
+}
+
+// Search recomputes the list and the dim mask only -- it must not tear down
+// and re-run the force simulation, or every keystroke would jolt the graph.
+function applySearch(){
+  buildList(lastShown, lastRadius);
+  applyLabels();
+  applyFocus();
+}
+
+// Labels update in place, like the dim mask. A search hit earns a label even
+// when it is below the raw>=5 cutoff, so results are readable on the graph
+// itself and not only in the sidebar.
+function labelText(d){
+  if(d.type === "elector") return d.initials;
+  const matched = state.matches && state.matches.has(d.id);
+  if(!(state.labels || d.raw >= 5 || matched)) return "";
+  return d.title.length > 34 ? d.title.slice(0,32) + "…" : d.title;
+}
+function applyLabels(){
+  if(!gNodes) return;
+  gNodes.selectAll("text.label")
+    .text(labelText)
+    .classed("match", d => d.type === "topic" && !!state.matches && state.matches.has(d.id));
 }
 function selectRow(id){
   document.querySelectorAll("#list li").forEach(li =>
@@ -429,6 +534,16 @@ for(const [k,m] of Object.entries(METRICS)){
 }
 document.getElementById("metricNote").innerHTML = METRICS[state.metric].note;
 
+const searchInput = document.getElementById("search");
+let searchTimer;
+searchInput.oninput = () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.query = searchInput.value; applySearch(); }, 120);
+};
+searchInput.onkeydown = e => {
+  if(e.key === "Escape"){ searchInput.value = ""; state.query = ""; applySearch(); }
+};
+
 const thr = document.getElementById("thr");
 thr.oninput = () => {
   state.minHearts = +thr.value;
@@ -436,10 +551,11 @@ thr.oninput = () => {
   gZoom.selectAll("*").remove(); render();
 };
 document.getElementById("labels").onchange = e => {
-  state.labels = e.target.checked; gZoom.selectAll("*").remove(); render();
+  state.labels = e.target.checked; applyLabels();
 };
 document.getElementById("reset").onclick = () => {
   state.pinned.clear(); pos.clear();
+  searchInput.value = ""; state.query = ""; state.matches = null;
   svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
   gZoom.selectAll("*").remove(); render();
 };

@@ -13,9 +13,22 @@ python3 scripts/fetch.py     # topic.forum -> data/raw.json   (network)
 python3 scripts/build.py     # data/raw.json -> map.html      (offline)
 ```
 
+`fetch.py` also writes two **gitignored** files: `data/bodies.json` (topic
+bodies normalised to plain text, for the planned semantic work) and
+`data/cache/names.json` (the name list `build.py` checks against). Body text
+routinely names members, so it must never reach a tracked file — see Privacy.
+
 Hover a node to isolate its neighbourhood, click to pin, double-click a topic
 to open it on topic.forum. The sidebar ranks topics at or above the threshold
 and, for whatever is focused, lists related topics by shared supporters.
+
+The **search box** ranks all 150 topics with BM25 over title + body, dimming
+everything that does not match. Matches reveal their titles on the graph even
+when they sit below the usual label cutoff, so results are readable without a
+sideways glance at the sidebar. It is lexical, not semantic: `build.py` inlines
+the whole index, so the page still works offline, and only the query is analysed
+in the browser. Hits below the heart threshold still appear in the list and open
+on topic.forum when they are not on the graph.
 
 ## The four metrics
 
@@ -63,9 +76,27 @@ a **presentation choice, not an anonymity guarantee**, and within a 14-person
 cohort an initial plus a heart pattern may still identify someone.
 
 `data/cache/` holds raw API responses (which do contain names) and is gitignored
-— do not commit it.
+— do not commit it. `data/bodies.json` holds normalised topic bodies and is
+likewise gitignored: bodies name members even more often than hearts do.
+
+As a backstop, `build.py` refuses to write `map.html` if any name, person slug
+or name token from `data/cache/names.json` appears anywhere readable in the
+payload. That guard is what makes "body text never reaches the artefact" a
+checked invariant rather than an intention. Fields that legitimately hold
+opaque blobs (future embedding vectors) must be listed in `OPAQUE_KEYS` so the
+scan skips them — never for readable text.
 
 ## Notes that shaped the design
+
+- **Search is a precomputed BM25 index, not a query encoder.** Inlining the
+  index keeps the single file offline; the cost is that the query analyser
+  exists twice -- `stem`/`analyze` in `build.py` and their mirror in
+  `web/template.html`. They must stay in step, or query terms stop matching the
+  index. The pair was verified to agree on every token in the corpus (4.7k
+  tokens, zero mismatches).
+- **Name tokens are dropped from the index.** Bodies name members, so
+  `build.py` removes any index term that is a known name/slug before inlining
+  it -- otherwise the privacy guard would (correctly) refuse to build.
 
 - **No `seen`/view data is public.** The app tracks it internally but exposes it
   only as per-viewer read state, or via the host/admin-only

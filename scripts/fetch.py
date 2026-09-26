@@ -27,10 +27,17 @@ never a name, person slug or raw user id. The cache under data/cache/ holds
 raw API responses (which do contain names) and is gitignored -- do not commit
 it.
 
+Topic bodies are fetched too: the semantic search / embedding work needs real
+prose. Bodies routinely name members, so they are normalised to plain text and
+written to data/bodies.json, which is *also* gitignored -- body text must never
+reach a tracked file. fetch.py additionally drops a data/cache/names.json name
+list so build.py can prove no name, slug or name token leaked into the artefact.
+
 Usage:
     python3 scripts/fetch.py [--refresh]
 
-Writes data/raw.json.
+Writes data/raw.json (tracked); data/bodies.json and data/cache/names.json
+(gitignored).
 """
 
 from __future__ import annotations
@@ -52,13 +59,40 @@ SLUG = "newspeak-house-2026-27"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(ROOT, "data", "cache")
 RAW_PATH = os.path.join(ROOT, "data", "raw.json")
+# Body text + the name list are gitignored: both routinely name members and
+# must never reach a tracked file.
+BODIES_PATH = os.path.join(ROOT, "data", "bodies.json")
+NAMES_PATH = os.path.join(CACHE_DIR, "names.json")
 
 PAGE = 50  # server-enforced maximum per query
 # Pages packed into a single HTTP request via GraphQL aliases. Batching keeps a
 # full refresh to a handful of requests rather than one per candidate per page.
 PAGES_PER_REQUEST = 4
 
-TOPIC_FIELDS = "id title slug heartCount publishedAt"
+TOPIC_FIELDS = "id title slug heartCount publishedAt bodyMd"
+
+_MD_FENCE = re.compile(r"```.*?```", re.S)
+_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_URL = re.compile(r"https?://\S+")
+_MD_TAG = re.compile(r"<[^>]+>")
+_MD_MARKS = re.compile(r"[*_`>#~]+")
+
+
+def plain_text(md: str) -> str:
+    """Reduce topic markdown to plain prose.
+
+    Links keep their text but lose their href (a href can carry a person slug);
+    code fences, images, raw URLs and emphasis markers are dropped. This is the
+    form the embedding stage consumes, and it deliberately carries no URLs.
+    """
+    text = _MD_FENCE.sub(" ", md)
+    text = _MD_IMAGE.sub(r"\1", text)
+    text = _MD_LINK.sub(r"\1", text)
+    text = _MD_URL.sub(" ", text)
+    text = _MD_TAG.sub(" ", text)
+    text = _MD_MARKS.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 class FetchError(RuntimeError):
@@ -112,8 +146,14 @@ def make_initials(people: list[dict]) -> dict[str, str]:
 
 
 def gql(query: str, cache_key: str, refresh: bool) -> dict:
-    """POST one GraphQL document, memoised to data/cache/<cache_key>.json."""
-    path = os.path.join(CACHE_DIR, cache_key + ".json")
+    """POST one GraphQL document, memoised to data/cache/<cache_key>.json.
+
+    The cache file name includes a digest of the query text, so editing a
+    query (e.g. adding a field) invalidates its stale cached response instead
+    of silently reusing a payload that lacks the new field.
+    """
+    digest = hashlib.sha256(query.encode()).hexdigest()[:8]
+    path = os.path.join(CACHE_DIR, f"{cache_key}-{digest}.json")
     if not refresh and os.path.exists(path) and os.path.getsize(path) > 2:
         with open(path) as fh:
             return json.load(fh)
@@ -155,9 +195,16 @@ def fetch_people(refresh: bool) -> list[dict]:
     return people
 
 
-def fetch_topics(refresh: bool) -> dict[str, dict]:
-    """All published topics, via offset pagination (limit is capped at 50)."""
+def fetch_topics(refresh: bool) -> tuple[dict[str, dict], dict[str, str]]:
+    """All published topics, via offset pagination (limit is capped at 50).
+
+    Returns (topics, bodies): `topics` is the public record with body text
+    already popped off, `bodies` maps topic id -> normalised plain text. The
+    two are kept apart on purpose, so a body can never leak into raw.json by
+    accident.
+    """
     topics: dict[str, dict] = {}
+    bodies: dict[str, str] = {}
     offset = 0
     while True:
         parts = [
@@ -169,14 +216,16 @@ def fetch_topics(refresh: bool) -> dict[str, dict]:
         got = 0
         for rows in payload["data"].values():
             for topic in rows:
+                body = topic.pop("bodyMd", None)
                 topics[topic["id"]] = topic
+                bodies[topic["id"]] = plain_text(body or "")
                 got += 1
         print(f"  topics offset {offset}: +{got} (total {len(topics)})")
         # A short page means we have reached the end of the list.
         if got < PAGES_PER_REQUEST * PAGE:
             break
         offset += PAGES_PER_REQUEST * PAGE
-    return topics
+    return topics, bodies
 
 
 def fetch_hearts(electors: list[dict], refresh: bool) -> dict[str, list[str]]:
@@ -221,8 +270,29 @@ def main() -> int:
     label = {e["slug"]: initials[e["userId"]] for e in electors}
     print(f"people: {len(people)} ({len(electors)} Fellowship Candidates)")
 
-    topics = fetch_topics(args.refresh)
+    topics, bodies = fetch_topics(args.refresh)
     hearts = fetch_hearts(electors, args.refresh)
+
+    # Name list for build.py's leak guard. Covers every forum member, not just
+    # candidates: a body may name a host or guest just as easily.
+    with open(NAMES_PATH, "w") as fh:
+        json.dump(
+            {
+                "names": sorted({p["name"] for p in people if p.get("name")}),
+                "slugs": sorted({p["slug"] for p in people if p.get("slug")}),
+                "tokens": sorted(
+                    {
+                        t.lower()
+                        for p in people
+                        if p.get("name")
+                        for t in re.split(r"[\s\-'\u2019]+", p["name"])
+                        if len(t) >= 4
+                    }
+                ),
+            },
+            fh,
+            indent=1,
+        )
 
     published = set(topics)
     # The app's weight denominator counts *published* topics only; a heart on a
@@ -259,7 +329,22 @@ def main() -> int:
     os.makedirs(os.path.dirname(RAW_PATH), exist_ok=True)
     with open(RAW_PATH, "w") as fh:
         json.dump(dataset, fh, indent=1)
-    print(f"wrote {os.path.relpath(RAW_PATH, ROOT)}")
+    with open(BODIES_PATH, "w") as fh:
+        json.dump(
+            {t["id"]: bodies.get(t["id"], "") for t in dataset["topics"]},
+            fh,
+            indent=1,
+        )
+
+    body_words = [len(b.split()) for b in bodies.values()]
+    empty = sum(1 for n in body_words if not n)
+    if body_words:
+        print(f"bodies: {len(bodies)} topics, {empty} empty, "
+              f"{sum(body_words)} words (median {sorted(body_words)[len(body_words) // 2]})")
+
+    print(f"wrote {os.path.relpath(RAW_PATH, ROOT)} (tracked)")
+    print(f"wrote {os.path.relpath(BODIES_PATH, ROOT)} (gitignored, contains names)")
+    print(f"wrote {os.path.relpath(NAMES_PATH, ROOT)} (gitignored, name guard)")
     return 0
 
 

@@ -1,7 +1,11 @@
 # scratch + fetched caches (regenerable)
 data/tmp/
 data/cache/
+# normalised topic bodies (name-bearing; never tracked)
+data/bodies.json
 
 # tooling
 node_modules/
+__pycache__/
+*.pyc
 .DS_Store
