@@ -20,15 +20,18 @@ bodies normalised to plain text, for the semantic layer) and
 routinely names members, so it must never reach a tracked file — see Privacy.
 
 `embed.py` is the **only** stage with third-party dependencies, so `build.py`
-stays stdlib-only and offline. It is also the only stage that needs Python 3.11
-rather than 3.14: `torch`/`onnxruntime` publish no cp314 wheels, so it uses
-`fastembed` (ONNX Runtime, ~10x smaller than torch) with
-`sentence-transformers/all-MiniLM-L6-v2`. See that script's docstring for the
-install line — this environment has no working venv and blocks TLS to PyPI, so
-it installs into a project-local `.embed-deps/` that the script puts on
-`sys.path`. It emits `data/embeddings.json` (gitignored): 2D coords, kNN
-neighbours, k-means clusters with c-TF-IDF terms, and int8 vectors. `build.py`
-inlines only the compact parts (~7 KB).
+stays stdlib-only and offline. It needs Python 3.11+ (`torch`/`onnxruntime`
+publish no cp314 wheels) and uses `fastembed` (ONNX Runtime, ~10x smaller than
+torch) with `sentence-transformers/all-MiniLM-L6-v2`:
+
+```
+python3.11 -m pip install fastembed scikit-learn
+python3.11 scripts/embed.py
+```
+
+It emits `data/embeddings.json` (gitignored): 2D coords, kNN neighbours,
+k-means clusters with c-TF-IDF terms, and int8 vectors. `build.py` inlines only
+the compact parts (~7 KB).
 
 Hover a node to isolate its neighbourhood, click to pin, double-click a topic
 to open it on topic.forum. The sidebar ranks topics at or above the threshold
@@ -73,7 +76,6 @@ devotion  = l1 / raw       mean supporter devotion     (== devotionScore)
 Each candidate spreads a total influence of 1 across their hearts, so hearting
 fewer topics makes each heart count for more. `build.py` refuses to build
 unless its `raw` reproduces the server's `heartCount` on every topic, so the
-
 derived scores can be trusted.
 
 Default view is `l1` with a floor of 2 hearts. Note `devotion` is an *intensity*
@@ -100,12 +102,11 @@ attributable anyway (`topicFeed(heartedBy:)` works anonymously). So initials are
 a **presentation choice, not an anonymity guarantee**, and within a 14-person
 cohort an initial plus a heart pattern may still identify someone.
 
-`data/cache/` holds raw API responses (which do contain names) and is gitignored
-— do not commit it. `data/bodies.json` holds normalised topic bodies and is
-likewise gitignored: bodies name members even more often than hearts do.
-`data/embeddings.json` is gitignored too, and `embed.py` strips name tokens
-from the c-TF-IDF cluster terms before writing it, so a cluster keyword can
-never be a member's name.
+The name-bearing intermediates are all gitignored: `data/cache/` (raw API
+responses), `data/bodies.json` (normalised bodies — these name members even
+more often than hearts do) and `data/embeddings.json`. `embed.py` also strips
+name tokens from the c-TF-IDF cluster terms, so a cluster keyword can never be
+a member's name.
 
 As a backstop, `build.py` refuses to write `map.html` if any name, person slug
 or name token from `data/cache/names.json` appears anywhere readable in the
@@ -123,17 +124,15 @@ scan skips them — never for readable text.
   byte-identical vectors, coords, clusters and neighbours.
 - **The semantic layout is relaxed, not raw t-SNE.** Topics are pinned, so the
   simulation's collide force cannot separate them, and t-SNE routinely drops
-  topics on top of each other. Scaling the projection up just clips nodes
-  (measured: 8 off-screen at 1.2×, 15 at 1.4×). Instead `relaxLayout()` pushes
-  overlapping pairs apart using worst-case radii — so the guarantee holds for
-  *every* size metric — then refits the cloud to the viewport. 0 overlaps for
-  all four metrics, nothing off-screen, ~33 ms, and the layout is independent of
-  metric and threshold. The cost is a small distortion of a projection that was
-  never faithful to begin with.
+  topics on top of each other; scaling the projection up just clips nodes.
+  Instead `relaxLayout()` pushes overlapping pairs apart using worst-case radii
+  — so the guarantee holds for *every* size metric — then refits the cloud to
+  the viewport. The result is independent of metric and threshold, at the cost
+  of a small distortion of a projection that was never faithful to begin with.
 - **Be honest about the clusters.** k-means on MiniLM embeddings separates the
-    150 topics into 7 groups with a **silhouette of 0.04** — far apart in
-    meaning is not the same as well-separated in vector space. Treat the cluster
-    labels as navigation, and the kNN neighbour lists as the trustworthy signal.
+  150 topics into 7 groups with a **silhouette of 0.04** — far apart in meaning
+  is not the same as well-separated in vector space. Treat the cluster labels as
+  navigation, and the kNN neighbour lists as the trustworthy signal.
 - **The two "related" panels answer different questions** and both are kept:
   overlap of *supporters* (Jaccard) measures shared curation, while semantic
   neighbours measure shared *meaning* and need no shared supporters at all —
@@ -142,9 +141,7 @@ scan skips them — never for readable text.
 - **Search is a precomputed BM25 index, not a query encoder.** Inlining the
   index keeps the single file offline; the cost is that the query analyser
   exists twice -- `stem`/`analyze` in `build.py` and their mirror in
-  `web/template.html`. They must stay in step, or query terms stop matching the
-  index. The pair was verified to agree on every token in the corpus (4.7k
-  tokens, zero mismatches).
+  `web/template.html` -- and the two must stay in step.
 - **Name tokens are dropped from the index.** Bodies name members, so
   `build.py` removes any index term that is a known name/slug before inlining
   it -- otherwise the privacy guard would (correctly) refuse to build.
@@ -166,8 +163,21 @@ scan skips them — never for readable text.
   (~4 requests per refresh instead of ~30). Denominators count published topics
   only, matching the app's rule.
 
+## Deploying
+
+`map.html` is the whole site. The included GitHub Actions workflow
+(`.github/workflows/pages.yml`) publishes it to GitHub Pages as `index.html` on
+every push to `main`.
+
+## Licence
+
+Code is MIT (see `LICENSE`). `map.html` inlines d3 v7.9.0, which is
+BSD-3-Clause — see `vendor/d3.LICENSE`.
+
 ## Caveats
 
 - n=14 is small. Treat any ranking as a conversation aid, not a verdict.
 - Anonymous access only; no tokens are used or stored.
-- `map.html` inlines d3 v7.9.0 (BSD-3-Clause) from `vendor/`.
+- The committed `map.html` is the artefact: rebuilding it needs the gitignored
+  intermediates, so a fresh clone produces a titles-only map with no semantic
+  layer until `fetch.py` and `embed.py` have run.

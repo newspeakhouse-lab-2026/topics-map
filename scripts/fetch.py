@@ -55,6 +55,9 @@ from datetime import datetime, timezone
 
 ENDPOINT = "https://topic.forum/graphql"
 SLUG = "newspeak-house-2026-27"
+# Identify the client so the forum's operators can see (and contact us about)
+# this traffic instead of guessing at an anonymous urllib user agent.
+USER_AGENT = "faculty-topic-map/1.0 (+https://github.com/mrmvn/faculty-topic-map)"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(ROOT, "data", "cache")
@@ -163,7 +166,9 @@ def gql(query: str, cache_key: str, refresh: bool) -> dict:
     for attempt in range(5):
         try:
             req = urllib.request.Request(
-                ENDPOINT, data=body, headers={"Content-Type": "application/json"}
+                ENDPOINT,
+                data=body,
+                headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
             )
             with urllib.request.urlopen(req, timeout=45) as resp:
                 text = resp.read().decode()

@@ -13,18 +13,14 @@ embeds them with a pinned sentence-transformer, and writes:
 `build.py` inlines the compact parts (coords / knn / clusters / terms) into
 map.html; the vectors stay here for future use.
 
-Setup (the environment here has no working venv and blocks TLS to PyPI, so
-deps go into a project-local --target dir that this script puts on sys.path):
+Setup (3.11 or newer: torch/onnxruntime publish no cp314 wheels, so this uses
+`fastembed` -- ONNX Runtime, ~10x smaller than torch -- with
+`sentence-transformers/all-MiniLM-L6-v2`):
 
-    python3.11 -m pip install --target .embed-deps --trusted-host pypi.org \\
-        --trusted-host files.pythonhosted.org fastembed scikit-learn
+    python3.11 -m pip install fastembed scikit-learn
     python3.11 scripts/embed.py
 
-Why 3.11 and not the system 3.14: torch/onnxruntime publish no cp314 wheels.
-fastembed (ONNX Runtime) is used instead of sentence-transformers/torch because
-it is ~10x smaller and installs cleanly. Model weights are cached under
-data/cache/ (gitignored), and the HF cache is redirected there too: the sandbox
-denies writes to ~/.cache and blocks the Xet transfer protocol.
+Model weights are cached under data/cache/ (gitignored).
 
 Usage:
     python3.11 scripts/embed.py
@@ -44,26 +40,17 @@ from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for `import build`
-DEPS = os.path.join(ROOT, ".embed-deps")
 
 RAW_PATH = os.path.join(ROOT, "data", "raw.json")
 BODIES_PATH = os.path.join(ROOT, "data", "bodies.json")
 OUT_PATH = os.path.join(ROOT, "data", "embeddings.json")
 CACHE_DIR = os.path.join(ROOT, "data", "cache")
 
-# Local --target install goes on sys.path before the heavy imports below.
-if os.path.isdir(DEPS):
-    sys.path.insert(0, DEPS)
-
-# Keep every cache inside the repo: ~/.cache is not writable here, and the
-# Xet protocol endpoint is blocked, so force plain HTTP downloads.
+# Keep the model download cache inside the repo (gitignored) and out of the
+# user's home directory.
 os.environ.setdefault("HF_HOME", os.path.join(CACHE_DIR, "hf"))
-os.environ.setdefault("HUGGINGFACE_HUB_CACHE", os.path.join(CACHE_DIR, "hf", "hub"))
 os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-# joblib barfs reading physical-core count under the sandbox; one core is plenty.
-os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
 
 import build  # noqa: E402  (stdlib-only; reuses analyze/drop_terms/load_names)
 
@@ -165,9 +152,7 @@ def main() -> int:
         from fastembed import TextEmbedding
     except ImportError as exc:
         print(f"ERROR: {exc}\nInstall the embed stage (see this file's docstring):\n"
-              "  python3.11 -m pip install --target .embed-deps "
-              "--trusted-host pypi.org --trusted-host files.pythonhosted.org "
-              "fastembed scikit-learn", file=sys.stderr)
+              "  python3.11 -m pip install fastembed scikit-learn", file=sys.stderr)
         return 1
 
     with open(RAW_PATH) as fh:
