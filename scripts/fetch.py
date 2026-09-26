@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Fetch the Newspeak House 2026-27 topic/heart graph from topic.forum.
+
+Public data only. No authentication is required: the forum is readable
+anonymously, and `topicFeed(heartedBy: <electorId>)` exposes each Fellowship
+Candidate's hearts without a token.
+
+Two things shape the request pattern:
+
+  * `limit` is capped at 50 for both `topicFeed` and `heartedBy`, and the cap
+    is silent -- you get 50 rows with no indication there are more. So every
+    list has to be offset-paginated.
+  * Queries are batched with GraphQL aliases, so one HTTP request carries a
+    page for every candidate at once. This is a small community-run forum:
+    batching keeps a full refresh at ~4 requests instead of ~30, which is
+    kinder to the server, avoids rate limiting, and reads closer to a single
+    consistent snapshot.
+
+Responses are cached under data/cache/ so re-runs are free. Use --refresh to
+bypass the cache (the forum resets hearts termly, so a scheduled re-run is
+expected).
+
+Privacy: candidate full names are used only to derive initials and are then
+discarded, and Clerk user ids are replaced by a short deterministic digest
+(see candidate_token). data/raw.json (tracked) carries token + initials,
+never a name, person slug or raw user id. The cache under data/cache/ holds
+raw API responses (which do contain names) and is gitignored -- do not commit
+it.
+
+Usage:
+    python3 scripts/fetch.py [--refresh]
+
+Writes data/raw.json.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+ENDPOINT = "https://topic.forum/graphql"
+SLUG = "newspeak-house-2026-27"
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CACHE_DIR = os.path.join(ROOT, "data", "cache")
+RAW_PATH = os.path.join(ROOT, "data", "raw.json")
+
+PAGE = 50  # server-enforced maximum per query
+# Pages packed into a single HTTP request via GraphQL aliases. Batching keeps a
+# full refresh to a handful of requests rather than one per candidate per page.
+PAGES_PER_REQUEST = 4
+
+TOPIC_FIELDS = "id title slug heartCount publishedAt"
+
+
+class FetchError(RuntimeError):
+    pass
+
+
+TOKEN_LEN = 10
+
+
+def candidate_token(user_id: str) -> str:
+    """Opaque, stable token standing in for a candidate's Clerk user id.
+
+    Deterministic on purpose: a candidate keeps the same token across terms,
+    which is what makes the termly snapshots comparable. Token length is fixed
+    so the artefact never carries a resolvable id.
+
+    Honest limit: `forumPeople` publicly returns userId + name, so anyone can
+    recompute these tokens for every member and match them. This defeats casual
+    reading of the artefact (no names, no user ids) but is NOT protection
+    against someone who knows the source is public. A keyed HMAC with a local
+    secret would be needed for that, at the cost of reproducibility.
+    """
+    return hashlib.sha256(user_id.encode()).hexdigest()[:TOKEN_LEN]
+
+
+def make_initials(people: list[dict]) -> dict[str, str]:
+    """Map userId -> unique initials.
+
+    "Ada Lovelace" -> "AL", a mononym -> its single initial. Collisions are
+    resolved by a stable numeric suffix ordered by userId, so the mapping does
+    not depend on input order. Full names never leave this function.
+    """
+
+    def base(name: str) -> str:
+        parts = [p for p in re.split(r"[\s\-'\u2019]+", name.strip()) if p]
+        if not parts:
+            return "?"
+        if len(parts) == 1:
+            return parts[0][0].upper()
+        return "".join(p[0].upper() for p in parts)
+
+    initials = {p["userId"]: base(p["name"]) for p in people}
+    groups: dict[str, list[str]] = {}
+    for uid, value in initials.items():
+        groups.setdefault(value, []).append(uid)
+    for value, uids in groups.items():
+        if len(uids) > 1:
+            for n, uid in enumerate(sorted(uids), 1):
+                initials[uid] = f"{value}{n}"
+    return initials
+
+
+def gql(query: str, cache_key: str, refresh: bool) -> dict:
+    """POST one GraphQL document, memoised to data/cache/<cache_key>.json."""
+    path = os.path.join(CACHE_DIR, cache_key + ".json")
+    if not refresh and os.path.exists(path) and os.path.getsize(path) > 2:
+        with open(path) as fh:
+            return json.load(fh)
+
+    body = json.dumps({"query": query}).encode()
+    last: str = "unknown"
+    for attempt in range(5):
+        try:
+            req = urllib.request.Request(
+                ENDPOINT, data=body, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                text = resp.read().decode()
+            if not text.strip():
+                last = "empty response body"
+            else:
+                payload = json.loads(text)
+                if "errors" in payload:
+                    raise FetchError(f"GraphQL errors: {payload['errors']}")
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                with open(path, "w") as fh:
+                    json.dump(payload, fh)
+                return payload
+        except (urllib.error.URLError, FetchError, json.JSONDecodeError, TimeoutError) as exc:
+            last = f"{type(exc).__name__}: {exc}"
+        time.sleep(2.5 * (attempt + 1))
+    raise FetchError(f"{cache_key}: giving up after 5 attempts ({last})")
+
+
+def fetch_people(refresh: bool) -> list[dict]:
+    payload = gql(
+        '{ forumPeople(idOrSlug: "%s") { userId slug name roles } }' % SLUG,
+        "people",
+        refresh,
+    )
+    people = payload["data"]["forumPeople"]
+    if not people:
+        raise FetchError("forumPeople returned nothing")
+    return people
+
+
+def fetch_topics(refresh: bool) -> dict[str, dict]:
+    """All published topics, via offset pagination (limit is capped at 50)."""
+    topics: dict[str, dict] = {}
+    offset = 0
+    while True:
+        parts = [
+            't%d: topicFeed(idOrSlug: "%s", limit: %d, offset: %d) { %s }'
+            % (i, SLUG, PAGE, offset + i * PAGE, TOPIC_FIELDS)
+            for i in range(PAGES_PER_REQUEST)
+        ]
+        payload = gql("query {\n" + "\n".join(parts) + "\n}", f"topics_{offset}", refresh)
+        got = 0
+        for rows in payload["data"].values():
+            for topic in rows:
+                topics[topic["id"]] = topic
+                got += 1
+        print(f"  topics offset {offset}: +{got} (total {len(topics)})")
+        # A short page means we have reached the end of the list.
+        if got < PAGES_PER_REQUEST * PAGE:
+            break
+        offset += PAGES_PER_REQUEST * PAGE
+    return topics
+
+
+def fetch_hearts(electors: list[dict], refresh: bool) -> dict[str, list[str]]:
+    """For every elector, the ids of topics they hearted (offset-paginated)."""
+    hearts: dict[str, list[str]] = {e["slug"]: [] for e in electors}
+    offset = 0
+    while True:
+        parts = [
+            'e%d: topicFeed(idOrSlug: "%s", heartedBy: "%s", limit: %d, offset: %d) { id }'
+            % (i, SLUG, e["userId"], PAGE, offset)
+            for i, e in enumerate(electors)
+        ]
+        payload = gql("query {\n" + "\n".join(parts) + "\n}", f"hearts_{offset}", refresh)
+        got = full = 0
+        for i, elector in enumerate(electors):
+            ids = [row["id"] for row in payload["data"].get(f"e{i}", [])]
+            hearts[elector["slug"]].extend(ids)
+            got += len(ids)
+            if len(ids) == PAGE:
+                full += 1
+        print(f"  hearts offset {offset}: +{got} (total {sum(len(v) for v in hearts.values())})")
+        # Stop only once *no* elector filled a page. Comparing the aggregate
+        # against len(electors)*PAGE is wrong: a handful of prolific hearters
+        # can still have pages while most candidates return short ones.
+        if full == 0:
+            break
+        offset += PAGE
+    return hearts
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--refresh", action="store_true", help="ignore the cache and re-fetch")
+    args = ap.parse_args()
+
+    print(f"forum: {SLUG}  endpoint: {ENDPOINT}")
+    people = fetch_people(args.refresh)
+    electors = [p for p in people if "elector" in p["roles"]]
+    # Names are used only to derive initials, then dropped: raw.json is a
+    # tracked artefact and must not carry identifying names.
+    initials = make_initials(electors)
+    label = {e["slug"]: initials[e["userId"]] for e in electors}
+    print(f"people: {len(people)} ({len(electors)} Fellowship Candidates)")
+
+    topics = fetch_topics(args.refresh)
+    hearts = fetch_hearts(electors, args.refresh)
+
+    published = set(topics)
+    # The app's weight denominator counts *published* topics only; a heart on a
+    # since-unpublished topic is a stale row and must not dilute the weight.
+    for slug, ids in hearts.items():
+        stale = [i for i in ids if i not in published]
+        if stale:
+            print(f"  note: {label[slug]} has {len(stale)} heart(s) on unpublished topics (dropped)")
+
+    dataset = {
+        "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "forum": {"slug": SLUG, "endpoint": ENDPOINT},
+        "electors": [
+            {
+                "id": candidate_token(e["userId"]),
+                "initials": initials[e["userId"]],
+                "heartedTopicIds": [i for i in hearts[e["slug"]] if i in published],
+            }
+            for e in electors
+        ],
+        "topics": sorted(topics.values(), key=lambda t: t.get("publishedAt") or ""),
+    }
+
+    edges = sum(len(e["heartedTopicIds"]) for e in dataset["electors"])
+    heart_total = sum(t.get("heartCount") or 0 for t in dataset["topics"])
+    print(f"\ntopics: {len(dataset['topics'])}   edges: {edges}   sum(heartCount): {heart_total}")
+    if edges != heart_total:
+        print(
+            "  WARNING: recovered edges != sum(heartCount); the edge list may be "
+            "incomplete (check for a per-page cap we missed).",
+            file=sys.stderr,
+        )
+
+    os.makedirs(os.path.dirname(RAW_PATH), exist_ok=True)
+    with open(RAW_PATH, "w") as fh:
+        json.dump(dataset, fh, indent=1)
+    print(f"wrote {os.path.relpath(RAW_PATH, ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

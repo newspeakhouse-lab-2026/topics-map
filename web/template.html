@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newspeak House 2026-27 — Candidate × Topic map</title>
+<style>
+  :root{
+    --primary:#2f54eb; --cand:#e8590c;
+    --bg:#eceef3; --card:#fff; --ink:#1b2330; --muted:#6b7385; --line:#dfe3ec;
+    --sans:"Lato",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#14171e; --card:#1d222c; --ink:#e7eaf1; --muted:#98a0b3; --line:#2b3240; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+  header{padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);
+         display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+  h1{margin:0;font-size:16px;font-weight:700}
+  .sub{color:var(--muted);font-size:12px}
+  .sub a{color:var(--primary)}
+  .spacer{flex:1}
+  .controls{display:flex;gap:20px;align-items:center;flex-wrap:wrap;
+            padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+  .group{display:flex;gap:6px;align-items:center}
+  .group>span.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--ink);padding:5px 11px;font:inherit;
+              font-size:12.5px;cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button[aria-pressed="true"]{background:var(--primary);color:#fff}
+  input[type=range]{width:130px;accent-color:var(--primary)}
+  .tog{display:flex;gap:5px;align-items:center;font-size:12.5px;cursor:pointer;user-select:none}
+  main{display:flex;height:calc(100vh - 108px);min-height:420px}
+  #graph{flex:1;display:block;cursor:grab}
+  #graph:active{cursor:grabbing}
+  aside{width:330px;flex:0 0 330px;background:var(--card);border-left:1px solid var(--line);
+        overflow:auto;padding:14px}
+  aside h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+           margin:0 0 8px}
+  .note{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);
+        border-radius:8px;padding:9px 10px;margin:0 0 14px}
+  .note code{font-size:11.5px}
+  ol.list{list-style:none;margin:0;padding:0}
+  ol.list li{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:baseline;
+             padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:6px}
+  ol.list li:hover{background:var(--bg)}
+  ol.list li.sel{background:color-mix(in srgb,var(--primary) 14%,transparent)}
+  .rank{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+  .ttl{font-size:12.5px;line-height:1.3}
+  .val{font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--primary);font-weight:700}
+  .val small{display:block;color:var(--muted);font-weight:400}
+  .empty{color:var(--muted);font-size:12.5px;font-style:italic}
+  .legend{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);
+          padding:6px 20px 0}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px;
+       vertical-align:-1px}
+  #tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;z-index:10;
+       background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 11px;
+       font-size:12.5px;max-width:320px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+  #tip b{display:block;margin-bottom:4px}
+  #tip .kv{display:grid;grid-template-columns:auto auto;gap:1px 12px;
+           font-variant-numeric:tabular-nums;color:var(--muted)}
+  #tip .kv i{font-style:normal;color:var(--ink)}
+  .node{stroke:var(--card);stroke-width:1.5px}
+  .label{pointer-events:none}
+  .lab-elector{fill:var(--ink);font-weight:700}
+  .lab-topic{fill:var(--muted)}
+  .link{stroke:#94a0b8;stroke-opacity:.16;fill:none}
+  .dim{opacity:.06 !important}
+  .fade{stroke-opacity:.04 !important}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Candidate × Topic map</h1>
+  <span class="sub" id="meta"></span>
+  <span class="spacer"></span>
+  <span class="sub">edges: candidate → topic (a heart)</span>
+</header>
+
+<div class="controls">
+  <div class="group">
+    <span class="lbl">size</span>
+    <div class="seg" id="metricSeg"></div>
+  </div>
+  <div class="group">
+    <span class="lbl">min hearts</span>
+    <input type="range" id="thr" min="0" max="6" step="1" value="2">
+    <b id="thrOut" style="font-variant-numeric:tabular-nums">2</b>
+  </div>
+  <label class="tog"><input type="checkbox" id="labels"> labels</label>
+  <button id="reset" style="margin-left:auto;border:1px solid var(--line);background:transparent;
+          color:var(--ink);border-radius:8px;padding:5px 11px;font:inherit;font-size:12.5px;
+          cursor:pointer">reset view</button>
+</div>
+
+<div class="legend">
+  <span><span class="dot" style="background:var(--cand)"></span>Fellowship Candidate</span>
+  <span><span class="dot" style="background:var(--primary)"></span>Topic</span>
+  <span>hover a node to isolate it · click to pin · double-click a topic to open it on topic.forum</span>
+</div>
+
+<main>
+  <svg id="graph"></svg>
+  <aside>
+    <div class="note" id="metricNote"></div>
+    <h2 id="listHead">Shortlist</h2>
+    <ol class="list" id="list"></ol>
+    <div id="relatedWrap" style="display:none;margin-top:18px">
+      <h2>Related topics</h2>
+      <div class="note" style="margin-bottom:8px">
+        Shares at least two supporters with the focused topic, ranked by Jaccard overlap.
+        Click one to pin it.
+        <br><br><b>On clustering:</b> the four most active candidates heart almost the same
+        topics as each other (Jaccard 0.30–0.53), so the co-heart graph is a single interest
+        blob — global clusters are not meaningful at 14 candidates. Local overlap like this is.
+      </div>
+      <ol class="list" id="relatedList"></ol>
+    </div>
+  </aside>
+</main>
+
+<div id="tip"></div>
+
+<script>/*__D3__*/</script>
+<script id="payload" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("payload").textContent);
+
+const METRICS = {
+  raw:      {label:"raw", short:"Σ❤️",
+             note:"<b>raw</b> — every heart counts the same. Node size = heart count.<br>" +
+                  "Simple and legible, but four candidates cast 300 of the 354 hearts, so this mostly measures their reach."},
+  l1:       {label:"weighted", short:"L1",
+             note:"<b>weighted (L1)</b> — each candidate spreads exactly one unit of attention across " +
+                  "the topics they hearted (<code>weight = 1 / their total</code>).<br>" +
+                  "Corrects for prolific hearters; volatile when a topic's support comes from " +
+                  "candidates who hearted almost nothing else."},
+  l2:       {label:"L2", short:"L2",
+             note:"<b>L2</b> — same idea, but discounted by √ of a candidate's total. A middle ground " +
+                  "between raw and weighted."},
+  devotion: {label:"devotion", short:"dev",
+             note:"<b>devotion</b> — the average share of their hearts that supporters gave this topic " +
+                  "(<code>L1 / raw</code>).<br>⚠ This is an <i>intensity</i> measure, not support: a topic " +
+                  "with one heart from a candidate who hearted nothing else scores a perfect 1.0. " +
+                  "Do not use it as a session threshold."}
+};
+
+const state = {metric:"l1", minHearts:2, labels:false, focus:null, pinned:new Set()};
+const pos = new Map();           // node id -> {x,y} carried across re-renders
+const fmt = d3.format(".3f");
+
+/* ---------- data prep ---------- */
+const fmtDate = d3.utcFormat("%d %b %Y");
+document.getElementById("meta").textContent =
+  DATA.forum.slug + " · " + DATA.topics.length + " published topics · " +
+  DATA.electors.length + " candidates · fetched " + fmtDate(new Date(DATA.generatedAt));
+
+// The forum's route is /f/<forum>/<person-slug>/<topic-slug>, but that middle
+// segment is decorative: any value 308-redirects to the canonical URL
+// (verified for real, bogus and nonsense segments). Using a fixed placeholder
+// keeps candidate and host names out of this file entirely.
+const TOPIC_URL = t => "https://topic.forum/f/" + DATA.forum.slug + "/t/" + t.slug;
+
+// Supporter-set overlap. Used for the "related topics" panel.
+// Tested at n=14: connected-components clustering puts every topic in one blob
+// (the dominant candidates overlap at Jaccard 0.30-0.53), so global clusters
+// were dropped in favour of this local, honest signal.
+function jaccard(a, b){
+  const A = new Set(a.hearters);
+  let inter = 0;
+  for(const s of b.hearters) if(A.has(s)) inter++;
+  const union = A.size + b.hearters.length - inter;
+  return union ? inter / union : 0;
+}
+
+/* ---------- graph build ---------- */
+let nodes=[], links=[], sim=null;
+
+function build(){
+  const maxTotal = d3.max(DATA.electors, e => e.total) || 1;
+  const shown = DATA.topics.filter(t => t.raw >= state.minHearts);
+  const maxMetric = d3.max(shown, t => t[state.metric]) || 1;
+
+  nodes = DATA.electors.map(e => Object.assign({}, e, {id:"e:"+e.id, type:"elector"}))
+          .concat(shown.map(t => Object.assign({}, t, {id:"t:"+t.id, type:"topic"})));
+  const ids = new Set(nodes.map(n => n.id));
+  links = [];
+  for(const t of shown) for(const s of t.hearters){
+    if(ids.has("e:"+s)) links.push({source:"e:"+s, target:"t:"+t.id, topic:t});
+  }
+
+  const rTopic = d => {
+    const v = d[state.metric];
+    return state.metric === "devotion" ? 4 + 21*v
+                                       : 4 + 21*Math.sqrt(Math.max(v,0)/maxMetric);
+  };
+  const rElector = d => 6 + 14*Math.sqrt(d.total/maxTotal);
+  const radius = d => d.type === "elector" ? rElector(d) : rTopic(d);
+  const colour = d => getComputedStyle(document.body)
+    .getPropertyValue(d.type === "elector" ? "--cand" : "--primary").trim();
+  return {radius, colour, shown};
+}
+
+/* ---------- render ---------- */
+const svg = d3.select("#graph");
+const gZoom = svg.append("g");
+let gLinks, gNodes;
+const zoom = d3.zoom().scaleExtent([0.15, 6]).on("zoom", ev => gZoom.attr("transform", ev.transform));
+svg.call(zoom);
+
+svg.append("defs").append("marker")
+  .attr("id","arrow").attr("viewBox","0 -5 10 10").attr("refX",0).attr("refY",0)
+  .attr("markerWidth",4).attr("markerHeight",4).attr("orient","auto")
+  .append("path").attr("d","M0,-4L8,0L0,4").attr("fill","#94a0b8").attr("opacity",.5);
+
+function render(){
+  const {radius, colour, shown} = build();
+  const W = svg.node().clientWidth, H = svg.node().clientHeight;
+
+  // seed positions so the layout does not jump between metric/threshold changes
+  for(const n of nodes){
+    const p = pos.get(n.id);
+    if(p){ n.x = p.x; n.y = p.y; }
+    else if(n.type === "elector"){ n.x = W/2 + (Math.random()-.5)*W*.6; n.y = 70; }
+    else { n.x = W/2 + (Math.random()-.5)*W*.8; n.y = H*.6 + (Math.random()-.5)*H*.3; }
+  }
+
+  gLinks = gZoom.append("g").attr("class","links");
+  gNodes = gZoom.append("g").attr("class","nodes");
+
+  const link = gLinks.selectAll("line").data(links).join("line")
+      .attr("class","link").attr("marker-end","url(#arrow)");
+
+  const node = gNodes.selectAll("g").data(nodes).join("g")
+      .attr("class","node-g")
+      .call(d3.drag()
+        .on("start",(ev,d)=>{ if(!ev.active) sim.alphaTarget(.25).restart(); d.fx=d.x; d.fy=d.y; })
+        .on("drag",(ev,d)=>{ d.fx=ev.x; d.fy=ev.y; })
+        .on("end",(ev,d)=>{ sim.alphaTarget(0);
+                            if(!state.pinned.has(d.id)){ d.fx=null; d.fy=null; } }));
+
+  node.append("circle").attr("class","node")
+      .attr("r",radius).attr("fill",colour)
+      .attr("fill-opacity", d => d.type === "topic" ? .85 : 1);
+
+  node.append("text")
+      .attr("class", d => "label " + (d.type === "elector" ? "lab-elector" : "lab-topic"))
+      .attr("dy", d => radius(d) + 10)
+      .attr("text-anchor","middle")
+      .attr("font-size", d => d.type === "elector" ? 10.5 : 9.5)
+      .text(d => d.type === "elector" ? d.initials
+                 : (state.labels || d.raw >= 5) ? (d.title.length > 34 ? d.title.slice(0,32)+"…" : d.title) : "");
+
+  node.on("mouseover",(ev,d)=> setFocus(d, ev))
+      .on("mousemove", ev => moveTip(ev))
+      .on("mouseout", ()=> { setFocus(null); hideTip(); })
+      .on("click",(ev,d)=>{ ev.stopPropagation();
+        if(state.pinned.has(d.id)){ state.pinned.delete(d.id); d.fx=null; d.fy=null; }
+        else { state.pinned.add(d.id); d.fx=d.x; d.fy=d.y; }
+      })
+      .on("dblclick",(ev,d)=>{ ev.stopPropagation(); ev.preventDefault();
+        if(d.type === "topic") window.open(TOPIC_URL(d), "_blank", "noopener");
+      });
+  svg.on("click", ()=> { state.pinned.clear(); for(const n of nodes){ n.fx=null; n.fy=null; } selectRow(null); });
+
+  sim = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d=>d.id)
+             .distance(l => 62 + radius(l.source)*1.1 + radius(l.target)*1.5).strength(.2))
+    .force("charge", d3.forceManyBody().strength(d => d.type === "elector" ? -520 : -190))
+    .force("collide", d3.forceCollide().radius(d => radius(d)+9).strength(.95))
+    .force("x", d3.forceX(W/2).strength(.012))
+    .force("y", d3.forceY(d => d.type === "elector" ? 80 : H*.62)
+             .strength(d => d.type === "elector" ? .4 : .035))
+    .on("tick", () => {
+      link.each(function(d){
+        const a = d.source, b = d.target;
+        const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+        const ra = radius(a) + 1, rb = radius(b) + 3;
+        d3.select(this)
+          .attr("x1", a.x + dx/len*ra).attr("y1", a.y + dy/len*ra)
+          .attr("x2", b.x - dx/len*rb).attr("y2", b.y - dy/len*rb);
+      });
+      node.attr("transform", d => "translate(" + d.x + "," + d.y + ")");
+      for(const n of nodes) pos.set(n.id, {x:n.x, y:n.y});
+    });
+
+  buildList(shown, radius);
+  applyFocus();
+}
+
+/* ---------- focus / tooltip ---------- */
+function setFocus(d, ev){
+  state.focus = d;
+  applyFocus();
+  if(ev) showTip(ev, d);
+  selectRow(d && d.type === "topic" ? d.id : null);
+  renderRelated(d && d.type === "topic" ? d : null);
+}
+
+function applyFocus(){
+  const f = state.focus;
+  if(!gNodes) return;
+  if(!f){ gNodes.selectAll("g").classed("dim",false); gLinks.selectAll("line").classed("fade",false); return; }
+  const keep = new Set([f.id]);
+  const keepLinks = new Set();
+  for(const l of links){
+    const s = l.source.id || l.source, t = l.target.id || l.target;
+    if(s === f.id || t === f.id){ keepLinks.add(l); keep.add(s); keep.add(t); }
+  }
+  gNodes.selectAll("g").classed("dim", n => !keep.has(n.id));
+  gLinks.selectAll("line").classed("fade", l => !keepLinks.has(l));
+}
+
+const tip = document.getElementById("tip");
+function showTip(ev, d){
+  const c = getComputedStyle(document.body);
+  let html;
+  if(d.type === "elector"){
+    html = "<b>" + esc(d.initials) + "</b><div class='kv'>" +
+      "<span>role</span><i>Fellowship Candidate</i>" +
+      "<span>hearts cast</span><i>" + d.total + "</i>" +
+      "<span>weight / heart</span><i>" + fmt(d.weight) + "</i>" +
+      "<span>topics shown</span><i>" + links.filter(l => (l.source.id||l.source) === d.id).length + "</i>" +
+      "</div>";
+  } else {
+    html = "<b>" + esc(d.title) + "</b><div class='kv'>" +
+      "<span>raw ❤️</span><i>" + d.raw + "</i>" +
+      "<span>weighted (L1)</span><i>" + fmt(d.l1) + "</i>" +
+      "<span>L2</span><i>" + fmt(d.l2) + "</i>" +
+      "<span>devotion</span><i>" + fmt(d.devotion) + "</i>" +
+      "<span>supporters</span><i>" + d.hearters.length + "</i>" +
+      "</div><div style='margin-top:6px;color:var(--muted)'>" +
+      esc(d.hearters.map(u => (DATA.electors.find(e=>e.id===u)||{}).initials || u).join(", ")) + "</div>";
+  }
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  moveTip(ev);
+}
+function moveTip(ev){
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  if(x + w > innerWidth - 8) x = ev.clientX - w - pad;
+  if(y + h > innerHeight - 8) y = ev.clientY - h - pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip(){ tip.style.opacity = 0; }
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+/* ---------- shortlist ---------- */
+function buildList(shown, radius){
+  const rows = shown.slice().sort((a,b) => b[state.metric] - a[state.metric]);
+  document.getElementById("listHead").textContent =
+    "Shortlist · " + rows.length + " topics ≥ " + state.minHearts + " ❤️";
+  const ol = document.getElementById("list");
+  ol.innerHTML = "";
+  if(!rows.length){ ol.innerHTML = "<div class='empty'>No topics meet the threshold.</div>"; return; }
+  rows.forEach((t,i) => {
+    const li = document.createElement("li");
+    li.dataset.id = "t:" + t.id;
+    li.innerHTML = "<span class='rank'>" + (i+1) + "</span>" +
+      "<span class='ttl'><a href='" + TOPIC_URL(t) + "' target='_blank' rel='noopener' " +
+      "style='color:inherit'>" + esc(t.title) + "</a></span>" +
+      "<span class='val'>" + fmt(t[state.metric]) +
+      "<small>" + t.raw + " ❤️</small></span>";
+    li.onmouseenter = () => { const n = nodes.find(n => n.id === li.dataset.id); if(n) setFocus(n); };
+    li.onmouseleave = () => { setFocus(null); hideTip(); };
+    li.onclick = () => { const n = nodes.find(n => n.id === li.dataset.id); if(n) pinAndZoom(n); };
+    ol.appendChild(li);
+  });
+}
+function selectRow(id){
+  document.querySelectorAll("#list li").forEach(li =>
+    li.classList.toggle("sel", id !== null && li.dataset.id === id));
+}
+function pinAndZoom(n){
+  state.pinned.add(n.id); n.fx = n.x; n.fy = n.y;
+  const W = svg.node().clientWidth, H = svg.node().clientHeight;
+  svg.transition().duration(450).call(
+    zoom.transform, d3.zoomIdentity.translate(W/2 - n.x, H/2 - n.y).scale(1.1));
+  setFocus(n);
+}
+function renderRelated(t){
+  const wrap = document.getElementById("relatedWrap");
+  const ol = document.getElementById("relatedList");
+  if(!t || !gNodes){ wrap.style.display = "none"; return; }
+  const tid = t.id.indexOf("t:") === 0 ? t.id.slice(2) : t.id;
+  const shown = DATA.topics.filter(x => x.raw >= state.minHearts);
+  const rows = shown.filter(x => x.id !== tid)
+    .map(x => ({t:x, j:jaccard(t, x)}))
+    .filter(r => r.j >= 0.2)
+    .sort((a,b) => b.j - a.j).slice(0, 8);
+  ol.innerHTML = "";
+  if(!rows.length){
+    ol.innerHTML = "<div class='empty'>No topic shares enough supporters with this one.</div>";
+  } else {
+    rows.forEach((r, i) => {
+      const li = document.createElement("li");
+      li.dataset.id = "t:" + r.t.id;
+      li.innerHTML = "<span class='rank'>" + (i+1) + "</span>" +
+        "<span class='ttl'><a href='" + TOPIC_URL(r.t) + "' target='_blank' rel='noopener' " +
+        "style='color:inherit'>" + esc(r.t.title) + "</a></span>" +
+        "<span class='val'>" + Math.round(r.j*100) + "%<small>" + r.t.raw + " ❤️</small></span>";
+      li.onclick = () => { const n = nodes.find(n => n.id === li.dataset.id); if(n) pinAndZoom(n); };
+      ol.appendChild(li);
+    });
+  }
+  wrap.style.display = "block";
+}
+
+/* ---------- controls ---------- */
+const seg = document.getElementById("metricSeg");
+for(const [k,m] of Object.entries(METRICS)){
+  const b = document.createElement("button");
+  b.textContent = m.label; b.dataset.k = k;
+  b.setAttribute("aria-pressed", k === state.metric);
+  b.onclick = () => {
+    state.metric = k;
+    [...seg.children].forEach(x => x.setAttribute("aria-pressed", x.dataset.k === k));
+    document.getElementById("metricNote").innerHTML = m.note;
+    gZoom.selectAll("*").remove(); render();
+  };
+  seg.appendChild(b);
+}
+document.getElementById("metricNote").innerHTML = METRICS[state.metric].note;
+
+const thr = document.getElementById("thr");
+thr.oninput = () => {
+  state.minHearts = +thr.value;
+  document.getElementById("thrOut").textContent = thr.value;
+  gZoom.selectAll("*").remove(); render();
+};
+document.getElementById("labels").onchange = e => {
+  state.labels = e.target.checked; gZoom.selectAll("*").remove(); render();
+};
+document.getElementById("reset").onclick = () => {
+  state.pinned.clear(); pos.clear();
+  svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+  gZoom.selectAll("*").remove(); render();
+};
+
+let t;
+addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => {
+  gZoom.selectAll("*").remove(); render(); }, 250); });
+
+render();
+})();
+</script>
+</body>
+</html>

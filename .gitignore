@@ -1,0 +1,7 @@
+# scratch + fetched caches (regenerable)
+data/tmp/
+data/cache/
+
+# tooling
+node_modules/
+.DS_Store
