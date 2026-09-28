@@ -92,6 +92,14 @@ gain and loss readable without leaving the map. Rows stay in cluster-index order
 with nothing left keeps its place as a dimmed empty row. The slider's maximum is
 derived from the data, so the most-hearted topic can always be isolated.
 
+The key floats *over* the map instead of taking a band above it, so the network
+keeps the full height and runs underneath. It is scrimmed only behind the terms
+and behind the histogram — the gap between them is left alone, and the scrim is
+masked so it fades out rather than ending on a seam. Only the labels and the
+bars take the pointer: the gap is click-through, so a node visible there can
+still be hovered, pinned and dragged. (The one deliberate cost is that a node
+sitting directly behind a label or a bar is covered by it.)
+
 `scripts/plot_clusters.py` draws the same quantity for *every* floor as one
 N-line figure — the exported version, at 200 dpi, with the number of topics that
 survive each floor under the axis (in orange where fewer than ten are left,

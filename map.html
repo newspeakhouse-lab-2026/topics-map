@@ -40,7 +40,7 @@
                 background:transparent;color:var(--ink);font:inherit;font-size:12.5px}
   .search input:focus{outline:2px solid color-mix(in srgb,var(--primary) 45%,transparent);
                       outline-offset:1px}
-  main{display:flex;flex:1 1 auto;min-height:320px;overflow:hidden}
+  main{position:relative;display:flex;flex:1 1 auto;min-height:320px;overflow:hidden}
   #graph{flex:1;min-width:0;display:block;cursor:grab}
   #graph:active{cursor:grabbing}
   aside{width:330px;flex:0 0 330px;background:var(--card);border-left:1px solid var(--line);
@@ -66,29 +66,55 @@
   .legend .lg:hover{color:var(--ink)}
   /* Cluster key, which doubles as a live composition histogram: one row per
      cluster in index order (so rows never move while the slider is dragged),
-     bar length = that cluster's share of the topics currently on the map. */
-  #clusterLegend{display:none;padding:7px 20px 9px;font-size:11.5px;color:var(--muted)}
+     bar length = that cluster's share of the topics currently on the map.
+
+     It floats over the map rather than taking a band above it, so the network
+     gets the whole height, and it is deliberately see-through: nothing is
+     painted in the gap between the terms and the histogram, the labels and
+     bars only tint what runs underneath, and only the text and bars themselves
+     take the pointer -- the void stays click-through to the graph. */
+  #clusterLegend{display:none;position:absolute;top:0;left:0;right:330px;z-index:5;
+                 padding:6px 20px 11px;font-size:11.5px;pointer-events:none;
+                 color:color-mix(in srgb,var(--muted) 82%,transparent)}
+  /* Legibility scrim: painted under the labels and under the histogram, with
+     nothing at all in the gap between them, and masked so it fades out rather
+     than ending on a seam. Painted behind the text (z-index:-1, inside the
+     key's own stacking context), so the network still shows through the glyphs.
+     The stops are a compromise: the terms are a fixed ~350px and the histogram
+     hugs the right edge, but the gap between them is whatever the viewport
+     leaves, so a narrow window ends up with a little less clarity and a little
+     more scrim. */
+  #clusterLegend::before{content:"";position:absolute;inset:0;z-index:-1;
+    background:linear-gradient(to right,
+      color-mix(in srgb,var(--card) 58%,transparent) 0%,
+      color-mix(in srgb,var(--card) 40%,transparent) 18%,
+      transparent 40%, transparent 62%,
+      color-mix(in srgb,var(--card) 32%,transparent) 70%,
+      color-mix(in srgb,var(--card) 52%,transparent) 100%);
+    -webkit-mask-image:linear-gradient(to bottom,#000 52%,transparent 100%);
+            mask-image:linear-gradient(to bottom,#000 52%,transparent 100%)}
+  #clusterLegend li>*,#clusterLegend .ck-head>span{pointer-events:auto}
   #clusterLegend .ck-head{display:flex;justify-content:space-between;gap:16px;font-size:11px;
                           text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
   #clusterLegend ol{list-style:none;margin:0;padding:0}
   #clusterLegend li{display:grid;align-items:center;gap:8px;padding:1px 4px;border-radius:5px;
                     cursor:pointer;grid-template-columns:10px 13px minmax(0,1fr)
                     minmax(90px,190px) 62px 44px}
-  #clusterLegend li:hover{background:var(--bg);color:var(--ink)}
+  #clusterLegend li:hover{background:color-mix(in srgb,var(--card) 68%,transparent);color:var(--ink)}
   #clusterLegend li.zero{opacity:.45}
-  #clusterLegend .sw{width:10px;height:10px;border-radius:3px}
+  #clusterLegend .sw{width:10px;height:10px;border-radius:3px;opacity:.85}
   #clusterLegend .ix{font-weight:700;font-variant-numeric:tabular-nums}
   #clusterLegend .terms{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   #clusterLegend .track{position:relative;height:9px;border-radius:5px;overflow:hidden;
-                        background:color-mix(in srgb,var(--muted) 16%,transparent);
-                        border:1px solid var(--line)}
+                        background:color-mix(in srgb,var(--muted) 14%,transparent);
+                        border:1px solid color-mix(in srgb,var(--line) 75%,transparent)}
   #clusterLegend .track i{position:absolute;left:0;top:0;bottom:0;display:block;border-radius:5px}
   /* notch: the same cluster's share with no heart floor at all, so a cluster
      that gains share as the floor rises reads off without leaving the map */
   #clusterLegend .track b{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;
-                          background:var(--ink);opacity:.45}
+                          background:var(--ink);opacity:.4}
   #clusterLegend .ct,#clusterLegend .pc{text-align:right;font-variant-numeric:tabular-nums}
-  #clusterLegend .pc{color:var(--ink);font-weight:700}
+  #clusterLegend .pc{color:color-mix(in srgb,var(--ink) 88%,transparent);font-weight:700}
   .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px;
        vertical-align:-1px}
   #tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;z-index:10;
@@ -147,10 +173,12 @@
   <span class="lg" data-type="topic"><span class="dot" style="background:var(--primary)"></span>Topic</span>
   <span>hover a node to isolate it · click to pin · double-click a topic to open it on topic.forum</span>
 </div>
-<div class="legend" id="clusterLegend"></div>
 
 <main>
+  <!-- Floats over the map (see #clusterLegend): the network keeps the full
+       height and shows through the key. -->
   <svg id="graph"></svg>
+  <div class="legend" id="clusterLegend"></div>
   <aside>
     <div class="note" id="metricNote"></div>
     <h2 id="listHead">Shortlist</h2>
@@ -434,9 +462,8 @@ svg.append("defs").append("marker")
   .append("path").attr("d","M0,-4L8,0L0,4").attr("fill","#94a0b8").attr("opacity",.5);
 
 function render(){
-  // The cluster key adds height to the page, so it must be laid out *before*
-  // the graph measures the viewport -- otherwise the simulation centres itself
-  // on a stale size and the map sits off-centre.
+  // The key floats over the map, so its rows come from state alone: no node
+  // geometry is needed, and it no longer changes the viewport the graph measures.
   renderClusterLegend();
   const {radius, colour, shown} = build();
   lastShown = shown; lastRadius = radius;
