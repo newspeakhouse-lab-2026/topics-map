@@ -60,6 +60,9 @@ SLUG = "newspeak-house-2026-27"
 USER_AGENT = "faculty-topic-map/1.0 (+https://github.com/mrmvn/faculty-topic-map)"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # for `import build`
+import build  # noqa: E402  (stdlib-only; shared semantic_key / content hash)
+
 CACHE_DIR = os.path.join(ROOT, "data", "cache")
 RAW_PATH = os.path.join(ROOT, "data", "raw.json")
 # Body text + the name list are gitignored: both routinely name members and
@@ -261,6 +264,97 @@ def fetch_hearts(electors: list[dict], refresh: bool) -> dict[str, list[str]]:
     return hearts
 
 
+def load_json(path: str):
+    """Read a JSON file, or None if it is missing or unreadable."""
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def report_changes(old, old_bodies, dataset, bodies) -> str:
+    """Compare this fetch with the baseline on disk and say what must run.
+
+    Returns ``(outcome, summary)``; outcome is one of three:
+
+      "none"       nothing moved -- embeddings and map are both current
+      "hearts"     only edges changed -- rebuild; embeddings still valid
+      "structural" topic set / title / body changed -- embeddings are stale
+
+    Hearts move daily, embedding inputs rarely, and re-embedding is the stage
+    with third-party dependencies, so telling the two apart is what keeps a
+    scheduled refresh cheap. The decisive signal is `semanticKey`, the
+    body-inclusive content hash stored in raw.json: it catches a title or body
+    edit that leaves the topic id set unchanged, which an id-only check misses.
+    The per-field diff below is for humans; the hash decides.
+
+    Prints a machine-readable `change=<outcome>` line to $GITHUB_OUTPUT when set,
+    so a workflow can branch on it without parsing prose.
+    """
+    if old is None:
+        print("\nbaseline: none (data/raw.json absent) -- initial fetch")
+        return "structural", "initial fetch"
+
+    old_topics = {t["id"]: t for t in old.get("topics", [])}
+    new_topics = {t["id"]: t for t in dataset["topics"]}
+    shared = old_topics.keys() & new_topics.keys()
+    added = new_topics.keys() - old_topics.keys()
+    removed = old_topics.keys() - new_topics.keys()
+    retitled = [i for i in shared if old_topics[i]["title"] != new_topics[i]["title"]]
+    body_edits = (
+        [] if old_bodies is None
+        else [i for i in shared if old_bodies.get(i, "") != bodies.get(i, "")]
+    )
+
+    old_edges = sum(len(e["heartedTopicIds"]) for e in old.get("electors", []))
+    new_edges = sum(len(e["heartedTopicIds"]) for e in dataset["electors"])
+
+    old_key = old.get("semanticKey")
+    key_changed = old_key is not None and old_key != dataset["semanticKey"]
+
+    print(f"\nchanges vs baseline ({old.get('generatedAt', '?')}):")
+    print(f"  topics: {len(old_topics)} -> {len(new_topics)} "
+          f"(+{len(added)} new, -{len(removed)} removed)")
+    note = "" if old_bodies is not None else " (bodies unavailable to compare)"
+    print(f"  edits:  {len(retitled)} retitled, {len(body_edits)} body edits{note}")
+    print(f"  hearts: {old_edges} -> {new_edges} ({new_edges - old_edges:+d})")
+    if old_key is None:
+        print("  note: baseline predates semanticKey; a body-only edit could go "
+              "undetected this once (next fetch stores the hash)")
+    elif key_changed:
+        print(f"  semanticKey: {old_key} -> {dataset['semanticKey']}")
+
+    if added or removed or retitled or body_edits or key_changed:
+        print("  => STRUCTURAL: embedding inputs changed; re-embed, then rebuild")
+        print("     python3.11 scripts/embed.py && python3 scripts/build.py")
+        return "structural", _summary(added, removed, retitled, body_edits,
+                                      new_edges - old_edges)
+    if new_edges != old_edges:
+        print("  => hearts only: rebuild (embeddings still valid)")
+        print("     python3 scripts/build.py")
+        return "hearts", _summary(added, removed, retitled, body_edits,
+                                  new_edges - old_edges)
+    print("  => no change; nothing to do")
+    return "none", "no change"
+
+
+def _summary(added, removed, retitled, body_edits, heart_delta) -> str:
+    """One-line human summary for the commit message."""
+    parts = []
+    if added:
+        parts.append(f"+{len(added)} topics")
+    if removed:
+        parts.append(f"-{len(removed)} topics")
+    if retitled:
+        parts.append(f"{len(retitled)} retitled")
+    if body_edits:
+        parts.append(f"{len(body_edits)} body edits")
+    if heart_delta:
+        parts.append(f"{heart_delta:+d} hearts")
+    return ", ".join(parts) or "no change"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--refresh", action="store_true", help="ignore the cache and re-fetch")
@@ -319,6 +413,11 @@ def main() -> int:
             for e in electors
         ],
         "topics": sorted(topics.values(), key=lambda t: t.get("publishedAt") or ""),
+        # Content hash of the embedding inputs (id + title + body). Lets
+        # build.py prove embeddings.json is not stale, and lets the change
+        # report tell a heart-only day (rebuild) from a topic/body edit
+        # (re-embed). Bodies are hashed, never stored -- this field is a digest.
+        "semanticKey": build.semantic_key(topics.values(), bodies),
     }
 
     edges = sum(len(e["heartedTopicIds"]) for e in dataset["electors"])
@@ -330,6 +429,25 @@ def main() -> int:
             "incomplete (check for a per-page cap we missed).",
             file=sys.stderr,
         )
+
+    # --- change report vs the baseline on disk ---------------------------
+    # Loaded before the writes below so the gate sees the previous snapshot.
+    old_raw = load_json(RAW_PATH)
+    old_bodies = load_json(BODIES_PATH)
+    change, summary = report_changes(old_raw, old_bodies, dataset, bodies)
+    # A no-op fetch must not churn the artefact: keep the old timestamp so
+    # raw.json -- and therefore map.html -- stays byte-identical when nothing
+    # moved, and the workflow's "commit only on diff" check stays quiet.
+    if change == "none" and old_raw and old_raw.get("generatedAt"):
+        dataset["generatedAt"] = old_raw["generatedAt"]
+    if os.environ.get("GITHUB_OUTPUT"):
+        # Consumed by .github/workflows/refresh.yml: `change` branches the job,
+        # `semanticKey` is the embeddings cache key (so heart-only days reuse a
+        # cached embed), `summary` goes into the commit message.
+        with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+            fh.write(f"change={change}\n")
+            fh.write(f"semanticKey={dataset['semanticKey']}\n")
+            fh.write(f"summary={summary}\n")
 
     os.makedirs(os.path.dirname(RAW_PATH), exist_ok=True)
     with open(RAW_PATH, "w") as fh:

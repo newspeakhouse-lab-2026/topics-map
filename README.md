@@ -19,6 +19,25 @@ bodies normalised to plain text, for the semantic layer) and
 `data/cache/names.json` (the name list `build.py` checks against). Body text
 routinely names members, so it must never reach a tracked file — see Privacy.
 
+### Refreshing: is a rebuild or a re-embed due?
+
+`fetch.py` doubles as the change gate. It compares the fresh snapshot with the
+committed `data/raw.json` and reports one of three outcomes:
+
+| outcome | what changed | what to run |
+| --- | --- | --- |
+| `none` | nothing | nothing (the timestamp is kept, so `raw.json` stays byte-identical) |
+| `hearts` | edges only | `build.py` — embeddings are still valid |
+| `structural` | topic added/removed, retitled, or body edited | `embed.py`, then `build.py` |
+
+The distinction is the point: hearts move daily while the embedding inputs
+rarely do, and embedding is the stage with third-party dependencies. The
+decision is made on a `semanticKey` — a body-inclusive hash of
+`(id, title, body)` stored in `raw.json` — which also lets `build.py` refuse a
+stale `embeddings.json`. That closes a real gap: the check used to compare
+topic *ids* only, so an edited body or title silently kept its old vectors.
+Only the hash is stored, never the body text.
+
 `embed.py` is the **only** stage with third-party dependencies, so `build.py`
 stays stdlib-only and offline. It needs Python 3.11+ (`torch`/`onnxruntime`
 publish no cp314 wheels) and uses `fastembed` (ONNX Runtime, ~10x smaller than
@@ -168,6 +187,17 @@ scan skips them — never for readable text.
 `map.html` is the whole site. The included GitHub Actions workflow
 (`.github/workflows/pages.yml`) publishes it to GitHub Pages as `index.html` on
 every push to `main`.
+
+`.github/workflows/refresh.yml` runs `fetch.py --refresh` once a day and commits
+the refreshed `data/raw.json` + `map.html` back to `main` **only when something
+moved**. It reuses the embeddings from an Actions cache keyed on the topic
+content hash, so a heart-only day rebuilds in seconds and never installs the
+embedding stack. Because a push made with the default `GITHUB_TOKEN` does not
+trigger other workflows, that job deploys Pages itself; `pages.yml` still
+handles human pushes. Use the workflow's `workflow_dispatch` (with `force_embed`
+to bypass the cache) if a scheduled run is ever skipped — GitHub disables cron
+schedules after ~60 days of repo inactivity, and scheduled runs are
+best-effort anyway.
 
 ## Licence
 

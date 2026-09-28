@@ -1,0 +1,8 @@
+# Embed-stage dependencies. Pinned on purpose: the semantic layer is meant to
+# be reproducible (fixed seed, PCA init, ONNX), and a floating version could
+# shift the vectors and therefore the layout. Installed only by embed.py, the
+# one stage that is not stdlib-only. Python 3.11+ required (torch/onnxruntime
+# publish no cp314 wheels).
+fastembed==0.8.1
+scikit-learn==1.9.1
+numpy==2.4.6

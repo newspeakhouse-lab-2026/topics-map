@@ -25,6 +25,7 @@ Writes map.html.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -98,6 +99,29 @@ def name_guard(payload, names) -> list[str]:
         if re.search(pattern, hay):
             hits.append(value)
     return hits
+
+
+def semantic_key(topics, bodies) -> str:
+    """Content hash of the embedding inputs: (id, title, body) per topic.
+
+    The sync check used to compare topic *ids* only, which silently kept stale
+    embeddings when a title or body was edited without changing the id set.
+    This digest catches that. Bodies routinely name members, so only the hash
+    is emitted (into raw.json and embeddings.json), never the text.
+
+    Sorted by id, so it tracks content rather than fetch/iteration order, and
+    shared by fetch.py (writes it), embed.py (writes it) and build.py (checks
+    it) so the three can never disagree about what "in sync" means.
+    """
+    digest = hashlib.sha256()
+    for topic in sorted(topics, key=lambda t: t["id"]):
+        digest.update(topic["id"].encode())
+        digest.update(b"\0")
+        digest.update(topic["title"].encode())
+        digest.update(b"\0")
+        digest.update(bodies.get(topic["id"], "").encode())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
 
 
 # --- lexical search ------------------------------------------------------
@@ -262,8 +286,10 @@ def main() -> int:
     try:
         with open(BODIES_PATH) as fh:
             bodies = json.load(fh)
+        bodies_available = True
     except (FileNotFoundError, json.JSONDecodeError):
         bodies = {}
+        bodies_available = False
         print("  note: data/bodies.json absent -- search index uses titles only")
     forbidden = drop_terms(names)
     payload["search"] = build_search_index(topics, bodies, forbidden)
@@ -283,6 +309,19 @@ def main() -> int:
             print("ERROR: data/embeddings.json is out of sync with data/raw.json "
                   "(topic ids differ); re-run scripts/embed.py.", file=sys.stderr)
             return 1
+        # Body-inclusive content check: catches an edited title or body that
+        # leaves the id set unchanged. Only possible when bodies.json is here
+        # (embeddings.json is written alongside it, so normally both exist).
+        stored_key = semantic.get("semanticKey")
+        if stored_key and bodies_available:
+            if stored_key != semantic_key(topics, bodies):
+                print("ERROR: data/embeddings.json is stale: topic titles or bodies "
+                      "changed since it was built (semanticKey mismatch); "
+                      "re-run scripts/embed.py.", file=sys.stderr)
+                return 1
+        elif stored_key:
+            print("  note: data/bodies.json absent -- semantic content hash not "
+                  "verified (only the topic id set was checked)")
         payload["semantic"] = {
             "model": semantic["model"],
             "dim": semantic["dim"],

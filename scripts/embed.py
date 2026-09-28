@@ -7,8 +7,9 @@ stdlib-only and offline. It reads the normalised bodies from
 embeds them with a pinned sentence-transformer, and writes:
 
   data/embeddings.json (gitignored) --
-      ids, 2D coords, kNN neighbour lists, k-means clusters + c-TF-IDF terms,
-      and int8-quantised vectors, all keyed to data/raw.json's topic order.
+      ids, a `semanticKey` content hash, 2D coords, kNN neighbour lists,
+      k-means clusters + c-TF-IDF terms, and int8-quantised vectors, all keyed
+      to data/raw.json's topic order.
 
 `build.py` inlines the compact parts (coords / knn / clusters / terms) into
 map.html; the vectors stay here for future use.
@@ -187,6 +188,7 @@ def main() -> int:
         "clustering": {"method": "kmeans", "k": k, "seed": SEED,
                        "silhouette": round(silhouette, 4)},
         "ids": [t["id"] for t in topics],
+        "semanticKey": build.semantic_key(topics, bodies),
         "coords": [[round(float(x), 3), round(float(y), 3)] for x, y in coords],
         "clusters": [int(c) for c in labels],
         "clusterTerms": terms,
