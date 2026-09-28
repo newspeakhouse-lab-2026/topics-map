@@ -1,0 +1,4 @@
+# Plot-stage dependency (scripts/plot_clusters.py). Kept separate from the
+# embed stage: this is a report artefact, not part of the offline build, and
+# nothing in the pipeline depends on it. Python 3.10+.
+matplotlib==3.11.2

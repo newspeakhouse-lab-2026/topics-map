@@ -12,7 +12,11 @@ network, no build step at view time.
 python3    scripts/fetch.py    # topic.forum -> data/raw.json      (network)
 python3.11 scripts/embed.py    # bodies -> data/embeddings.json     (model)
 python3    scripts/build.py    # raw + embeddings -> map.html       (offline)
+python3.11 scripts/plot_clusters.py  # map.html -> figures/cluster-share.png (optional)
 ```
+
+The first three are the pipeline; the fourth is a report artefact drawn from
+`map.html` itself (see *Cluster share vs. minimum hearts*).
 
 `fetch.py` also writes two **gitignored** files: `data/bodies.json` (topic
 bodies normalised to plain text, for the semantic layer) and
@@ -66,8 +70,9 @@ on topic.forum when they are not on the graph.
 
 Switch **layout** from `force` to `semantic` to pin topics at their t-SNE
 coordinates from the title+body embedding, coloured by k-means cluster (the key
-shows each cluster's c-TF-IDF terms; hover one to isolate it and reveal that
-cluster's titles). The Candidate/Topic key items isolate that node type on hover
+lists every cluster on its own row, with a bar for that cluster's share of the
+topics currently on the map; hover a row to isolate the cluster and reveal its
+titles). The Candidate/Topic key items isolate that node type on hover
 too, but deliberately leave labelling alone. Candidates are
 drawn at a **uniform radius** and dropped at the centre of the topics they
 hearted, so the candidate→topic structure survives the switch. Focusing a topic
@@ -75,6 +80,39 @@ also lists its **nearest neighbours in meaning** — cosine neighbours of the
 embedding — which, unlike the supporter panel, still says something for a topic
 only one person hearted. View choices (layout, metric, threshold, labels) are
 tucked into `localStorage` and restored on reload; `reset view` clears them.
+
+### Cluster share vs. minimum hearts
+
+The cluster key is also the measure. Each row's bar is that cluster's share of
+the topics currently on the map — `# cluster topics / # topics shown` — so
+dragging **min hearts** turns the key into a live composition histogram, and the
+thin notch on each bar marks the same cluster's share at floor 0, which makes
+gain and loss readable without leaving the map. Rows stay in cluster-index order
+(so nothing moves under the cursor while the slider is dragged) and a cluster
+with nothing left keeps its place as a dimmed empty row. The slider's maximum is
+derived from the data, so the most-hearted topic can always be isolated.
+
+`scripts/plot_clusters.py` draws the same quantity for *every* floor as one
+N-line figure — the exported version, at 200 dpi, with the number of topics that
+survive each floor under the axis (in orange where fewer than ten are left,
+because a share of five topics is noise):
+
+```
+python3.11 -m pip install -r scripts/requirements-plot.txt
+python3.11 scripts/plot_clusters.py            # figures/cluster-share.{png,svg}
+python3.11 scripts/plot_clusters.py --counts   # sizes instead of shares
+```
+
+It reads the payload inlined in `map.html` rather than `data/embeddings.json`,
+so it needs no model, always agrees with what the map shows, and can be
+regenerated from a fresh clone. Its bytes are stable across runs.
+
+What it shows at the September 2026 snapshot: cluster 2 (*political, network,
+democracy*) climbs from 27% of the map at floor 0 to 41% at floor 5 — support
+that is broad rather than deep — while cluster 4 (*data, security, privacy*)
+collapses from 21% to nothing above 5 hearts. By floor 7 only five topics are
+left, which is why the figure flags that end of the axis instead of dressing it
+up.
 
 ## The four metrics
 
@@ -125,7 +163,8 @@ The name-bearing intermediates are all gitignored: `data/cache/` (raw API
 responses), `data/bodies.json` (normalised bodies — these name members even
 more often than hearts do) and `data/embeddings.json`. `embed.py` also strips
 name tokens from the c-TF-IDF cluster terms, so a cluster keyword can never be
-a member's name.
+a member's name. `figures/` is drawn from the vetted payload of `map.html` and
+adds nothing to it, so it cannot let a name back in.
 
 As a backstop, `build.py` refuses to write `map.html` if any name, person slug
 or name token from `data/cache/names.json` appears anywhere readable in the
@@ -152,6 +191,13 @@ scan skips them — never for readable text.
   150 topics into 7 groups with a **silhouette of 0.04** — far apart in meaning
   is not the same as well-separated in vector space. Treat the cluster labels as
   navigation, and the kNN neighbour lists as the trustworthy signal.
+- **The figure reads the artefact, not the intermediates.** `plot_clusters.py`
+  parses the payload inlined in `map.html`, so it needs no model, no
+  `data/embeddings.json`, and cannot disagree with the map it illustrates — the
+  cost is a regex over 483 KB of HTML and a dependency on the payload staying
+  inlined, which is fine for an optional report artefact outside `build.py`.
+  The same reasoning puts the measure in the legend itself: the key recomputes
+  shares from `DATA.topics` at every render, so no extra numbers are inlined.
 - **The two "related" panels answer different questions** and both are kept:
   overlap of *supporters* (Jaccard) measures shared curation, while semantic
   neighbours measure shared *meaning* and need no shared supporters at all —
@@ -198,6 +244,12 @@ handles human pushes. Use the workflow's `workflow_dispatch` (with `force_embed`
 to bypass the cache) if a scheduled run is ever skipped — GitHub disables cron
 schedules after ~60 days of repo inactivity, and scheduled runs are
 best-effort anyway.
+
+The workflow deliberately leaves `figures/` alone: it commits only `data/raw.json`
+and `map.html`, the two files whose contents it can vet, and a figure redrawn on
+every heart-only day would be noise in the history. Run `plot_clusters.py` by
+hand when the plot is wanted — the numbers behind it are stable enough that it
+changes shape only when the data does.
 
 ## Licence
 

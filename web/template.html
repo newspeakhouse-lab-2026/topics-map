@@ -14,14 +14,18 @@
     :root{ --bg:#14171e; --card:#1d222c; --ink:#e7eaf1; --muted:#98a0b3; --line:#2b3240; }
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
-  header{padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);
+  /* Column flex page: the cluster key under the controls changes height, so the
+     map takes the remainder instead of a hardcoded 100vh minus chrome. */
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);
+       display:flex;flex-direction:column}
+  header{flex:none;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);
          display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
   h1{margin:0;font-size:16px;font-weight:700}
   .sub{color:var(--muted);font-size:12px}
   .sub a{color:var(--primary)}
   .spacer{flex:1}
-  .controls{display:flex;gap:20px;align-items:center;flex-wrap:wrap;
+  .controls{flex:none;display:flex;gap:20px;align-items:center;flex-wrap:wrap;
             padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line)}
   .group{display:flex;gap:6px;align-items:center}
   .group>span.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -36,8 +40,8 @@
                 background:transparent;color:var(--ink);font:inherit;font-size:12.5px}
   .search input:focus{outline:2px solid color-mix(in srgb,var(--primary) 45%,transparent);
                       outline-offset:1px}
-  main{display:flex;height:calc(100vh - 108px);min-height:420px}
-  #graph{flex:1;display:block;cursor:grab}
+  main{display:flex;flex:1 1 auto;min-height:320px;overflow:hidden}
+  #graph{flex:1;min-width:0;display:block;cursor:grab}
   #graph:active{cursor:grabbing}
   aside{width:330px;flex:0 0 330px;background:var(--card);border-left:1px solid var(--line);
         overflow:auto;padding:14px}
@@ -56,16 +60,35 @@
   .val{font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--primary);font-weight:700}
   .val small{display:block;color:var(--muted);font-weight:400}
   .empty{color:var(--muted);font-size:12.5px;font-style:italic}
-  .legend{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);
+  .legend{flex:none;display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);
           padding:6px 20px 0}
   .legend .lg{cursor:pointer}
   .legend .lg:hover{color:var(--ink)}
-  #clusterLegend{display:none;flex-wrap:wrap;gap:6px 16px;padding:6px 20px 0;font-size:11.5px;
-                 color:var(--muted)}
-  #clusterLegend .ck{display:flex;gap:6px;align-items:center;cursor:pointer}
-  #clusterLegend .ck:hover{color:var(--ink)}
-  #clusterLegend .sw{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
-  #clusterLegend b{color:var(--ink)}
+  /* Cluster key, which doubles as a live composition histogram: one row per
+     cluster in index order (so rows never move while the slider is dragged),
+     bar length = that cluster's share of the topics currently on the map. */
+  #clusterLegend{display:none;padding:7px 20px 9px;font-size:11.5px;color:var(--muted)}
+  #clusterLegend .ck-head{display:flex;justify-content:space-between;gap:16px;font-size:11px;
+                          text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+  #clusterLegend ol{list-style:none;margin:0;padding:0}
+  #clusterLegend li{display:grid;align-items:center;gap:8px;padding:1px 4px;border-radius:5px;
+                    cursor:pointer;grid-template-columns:10px 13px minmax(0,1fr)
+                    minmax(90px,190px) 62px 44px}
+  #clusterLegend li:hover{background:var(--bg);color:var(--ink)}
+  #clusterLegend li.zero{opacity:.45}
+  #clusterLegend .sw{width:10px;height:10px;border-radius:3px}
+  #clusterLegend .ix{font-weight:700;font-variant-numeric:tabular-nums}
+  #clusterLegend .terms{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  #clusterLegend .track{position:relative;height:9px;border-radius:5px;overflow:hidden;
+                        background:color-mix(in srgb,var(--muted) 16%,transparent);
+                        border:1px solid var(--line)}
+  #clusterLegend .track i{position:absolute;left:0;top:0;bottom:0;display:block;border-radius:5px}
+  /* notch: the same cluster's share with no heart floor at all, so a cluster
+     that gains share as the floor rises reads off without leaving the map */
+  #clusterLegend .track b{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;
+                          background:var(--ink);opacity:.45}
+  #clusterLegend .ct,#clusterLegend .pc{text-align:right;font-variant-numeric:tabular-nums}
+  #clusterLegend .pc{color:var(--ink);font-weight:700}
   .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px;
        vertical-align:-1px}
   #tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;z-index:10;
@@ -198,6 +221,10 @@ function saveView(){
 }
 const pos = new Map();           // node id -> {x,y} carried across re-renders
 const fmt = d3.format(".3f");
+// The heart floor is bounded by the data, not by a magic number: the slider has
+// to be able to isolate the most-hearted topic, and scripts/plot_clusters.py
+// sweeps exactly this range so the figure and the control agree.
+const MAX_HEARTS = d3.max(DATA.topics, t => t.raw) || 0;
 
 /* ---------- data prep ---------- */
 const fmtDate = d3.utcFormat("%d %b %Y");
@@ -292,7 +319,7 @@ function relaxLayout(W, H){
 (function restoreView(){
   const saved = loadView();
   if(saved.metric && METRICS[saved.metric]) state.metric = saved.metric;
-  if(Number.isFinite(saved.minHearts)) state.minHearts = Math.max(0, Math.min(6, saved.minHearts | 0));
+  if(Number.isFinite(saved.minHearts)) state.minHearts = Math.max(0, Math.min(MAX_HEARTS, saved.minHearts | 0));
   state.labels = !!saved.labels;
   if(saved.layout === "semantic" && SEMANTIC) state.layout = "semantic";
 })();
@@ -405,6 +432,10 @@ svg.append("defs").append("marker")
   .append("path").attr("d","M0,-4L8,0L0,4").attr("fill","#94a0b8").attr("opacity",.5);
 
 function render(){
+  // The cluster key adds height to the page, so it must be laid out *before*
+  // the graph measures the viewport -- otherwise the simulation centres itself
+  // on a stale size and the map sits off-centre.
+  renderClusterLegend();
   const {radius, colour, shown} = build();
   lastShown = shown; lastRadius = radius;
   const W = svg.node().clientWidth, H = svg.node().clientHeight;
@@ -511,7 +542,6 @@ function render(){
 
   buildList(shown, radius);
   applyLabels();
-  renderClusterLegend();
   applyFocus();
 }
 
@@ -670,29 +700,64 @@ function applyLabels(){
       ((!!state.matches && state.matches.has(d.id)) || clusterHoverHit(d)));
 }
 
-// The cluster key only makes sense in semantic mode, where topics are coloured
-// by k-means group. Terms are the c-TF-IDF keywords for each cluster.
+/* ---------- cluster key ----------
+   Only meaningful in semantic mode, where topics are coloured by k-means group.
+   The key doubles as the measure: each row's bar is that cluster's share of the
+   topics currently on the map (# cluster topics / # topics shown), which moves
+   with the min-hearts floor -- a cluster whose share *rises* as the floor rises
+   is one with broad rather than niche support. scripts/plot_clusters.py draws
+   the same quantity for every floor as an N-line figure.
+
+   Rows stay in cluster-index order and a cluster with nothing left above the
+   floor keeps its row (empty bar, dimmed) and always in the same place, so
+   nothing jumps under the cursor while the threshold slider is dragged. */
+function clusterCounts(){
+  const k = SEMANTIC.clusterTerms.length;
+  const counts = new Array(k).fill(0), total = new Array(k).fill(0);
+  DATA.topics.forEach((t, i) => {
+    const c = SEMANTIC.clusters[i];        // index-aligned: build.py verifies it
+    total[c]++;
+    if(t.raw >= state.minHearts) counts[c]++;
+  });
+  return {counts, total, all: DATA.topics.length, shown: d3.sum(counts)};
+}
+
 function renderClusterLegend(){
   const el = document.getElementById("clusterLegend");
   if(!(state.layout === "semantic" && SEMANTIC)){
     if(state.hoverFilter && state.hoverFilter.kind === "cluster") state.hoverFilter = null;
     el.style.display = "none"; el.innerHTML = ""; return;
   }
-  el.style.display = "flex";
-  el.title = "Clusters are k-means in the full " + SEMANTIC.dim + "-d embedding " +
-    "space, NOT on this 2-D map, so same-coloured topics are not always " +
-    "neighbours. Hover a cluster to isolate it.";
-  el.innerHTML = "";
+  const {counts, total, all, shown} = clusterCounts();
+  const pct = (n, d) => d ? 100*n/d : 0;
+  const colour = i => CLUSTER_COLOURS[i % CLUSTER_COLOURS.length];
+  el.style.display = "block";
+  el.title = "Each bar is that cluster's share of the topics at or above the heart " +
+    "floor. Clusters are k-means in the full " + SEMANTIC.dim + "-d embedding space, " +
+    "NOT on this 2-D map, so same-coloured topics are not always neighbours. " +
+    "Hover a cluster to isolate it.";
+  let html = "<div class='ck-head'><span>cluster share · floor " + state.minHearts +
+    " ❤️</span><span>" + shown + " topic" + (shown === 1 ? "" : "s") + " on the map" +
+    (state.minHearts > 0 ? " · │ = share at floor 0" : "") + "</span></div><ol>";
   SEMANTIC.clusterTerms.forEach((terms, i) => {
-    const span = document.createElement("span");
-    span.className = "ck";
-    span.style.cursor = "pointer";
-    span.innerHTML = "<span class='sw' style='background:" +
-      CLUSTER_COLOURS[i % CLUSTER_COLOURS.length] + "'></span><b>" + i + "</b>&nbsp;" +
-      esc(terms.slice(0, 4).join(", "));
-    span.onmouseenter = () => { state.hoverFilter = {kind:"cluster", id:i}; applyFocus(); applyLabels(); };
-    span.onmouseleave = () => { state.hoverFilter = null; applyFocus(); applyLabels(); };
-    el.appendChild(span);
+    const share = pct(counts[i], shown);
+    html += "<li data-cluster='" + i + "'" + (counts[i] ? "" : " class='zero'") + ">" +
+      "<span class='sw' style='background:" + colour(i) + "'></span>" +
+      "<span class='ix'>" + i + "</span>" +
+      "<span class='terms'>" + esc((terms || []).slice(0, 6).join(", ")) + "</span>" +
+      "<span class='track'><i style='width:" + share.toFixed(1) + "%;background:" +
+        colour(i) + ";opacity:.85'></i>" +
+        (state.minHearts > 0
+          ? "<b style='left:" + pct(total[i], all).toFixed(1) + "%'></b>" : "") +
+      "</span>" +
+      "<span class='ct'>" + counts[i] + "/" + shown + "</span>" +
+      "<span class='pc'>" + share.toFixed(1) + "%</span></li>";
+  });
+  el.innerHTML = html + "</ol>";
+  el.querySelectorAll("li").forEach(li => {
+    const i = +li.dataset.cluster;
+    li.onmouseenter = () => { state.hoverFilter = {kind:"cluster", id:i}; applyFocus(); applyLabels(); };
+    li.onmouseleave = () => { state.hoverFilter = null; applyFocus(); applyLabels(); };
   });
 }
 function selectRow(id){
@@ -842,6 +907,7 @@ addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => {
   gZoom.selectAll("*").remove(); render(); }, 250); });
 
 // Reflect restored state in the controls before the first paint.
+thr.max = MAX_HEARTS;
 thr.value = state.minHearts;
 document.getElementById("thrOut").textContent = state.minHearts;
 document.getElementById("labels").checked = state.labels;
