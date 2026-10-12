@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-10T10:34:56+00:00",
+ "generatedAt": "2026-10-12T11:55:30+00:00",
  "forum": {
   "slug": "newspeak-house-2026-27",
   "endpoint": "https://topic.forum/graphql"
@@ -1888,7 +1888,14 @@
    "slug": "kyoto-play",
    "heartCount": 1,
    "publishedAt": "2026-10-01T19:01:56.229Z"
+  },
+  {
+   "id": "f89a67cb-83d8-4b71-9929-e1320205997d",
+   "title": "Family, Fertility, and the Future",
+   "slug": "family-fertility-and-the-future",
+   "heartCount": 0,
+   "publishedAt": "2026-10-11T16:48:31.176Z"
   }
  ],
- "semanticKey": "9585e8aaf701c385"
+ "semanticKey": "0cddc0a5d4fa8dba"
 }
