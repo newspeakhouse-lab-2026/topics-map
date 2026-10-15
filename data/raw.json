@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-14T09:29:44+00:00",
+ "generatedAt": "2026-10-15T09:07:43+00:00",
  "forum": {
   "slug": "newspeak-house-2026-27",
   "endpoint": "https://topic.forum/graphql"
@@ -1108,6 +1108,13 @@
    "publishedAt": "2026-07-25T20:47:58.016Z"
   },
   {
+   "id": "3886efc1-cfe3-419f-85a0-f5a6c22a5215",
+   "title": "Artificial Collective Intelligence",
+   "slug": "artificial-collective-intelligence",
+   "heartCount": 0,
+   "publishedAt": "2026-07-25T21:10:19.116Z"
+  },
+  {
    "id": "fcbc7760-9aa3-433d-857d-f3ea0771bd3b",
    "title": "Ecotopia & Techno Utopia: Harmonizing Nature and Technology in Post-work Futures",
    "slug": "ecotopia-techno-utopia-harmonizing-nature-and-technology-in",
@@ -1899,5 +1906,5 @@
    "publishedAt": "2026-10-11T16:48:31.176Z"
   }
  ],
- "semanticKey": "0cddc0a5d4fa8dba"
+ "semanticKey": "9d16b562b0ec34ac"
 }
