@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-19T09:51:09+00:00",
+ "generatedAt": "2026-10-21T09:20:21+00:00",
  "forum": {
   "slug": "newspeak-house-2026-27",
   "endpoint": "https://topic.forum/graphql"
@@ -1907,7 +1907,14 @@
    "slug": "family-fertility-and-the-future",
    "heartCount": 1,
    "publishedAt": "2026-10-11T16:48:31.176Z"
+  },
+  {
+   "id": "de68818b-189e-4efd-8279-63ea15f58231",
+   "title": "Choosing long-term projects",
+   "slug": "choosing-long-term-projects",
+   "heartCount": 0,
+   "publishedAt": "2026-10-21T06:11:24.579Z"
   }
  ],
- "semanticKey": "9d16b562b0ec34ac"
+ "semanticKey": "22710c050c696291"
 }
