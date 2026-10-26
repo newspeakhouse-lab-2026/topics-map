@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-25T09:07:43+00:00",
+ "generatedAt": "2026-10-26T10:04:01+00:00",
  "forum": {
   "slug": "newspeak-house-2026-27",
   "endpoint": "https://topic.forum/graphql"
@@ -47,8 +47,8 @@
     "101cd98b-dd1e-4574-8a8d-543e885c928d",
     "8e9acfa7-591e-4381-9125-dc9d13bd8732",
     "47b81316-5858-46e6-a922-36b073905f85",
-    "b984bb10-6090-4ed9-9c5f-0777c8cad514",
     "e1f1e29b-bfe6-4289-9b59-736f45a38994",
+    "b984bb10-6090-4ed9-9c5f-0777c8cad514",
     "3b9a9002-a92f-4af1-b9ef-f987370013b5",
     "926a606d-ed2b-479e-8e38-3117f3bfe9ff",
     "78406b06-dae3-4c68-887e-aaf1805ac34c",
@@ -101,9 +101,9 @@
     "5c95f0a7-88ee-4e83-81f4-a336ba5b6460",
     "fa2e7ff6-c49f-4947-888b-707cd456be5f",
     "2b4b69d3-eef9-4f4c-9732-cd05ecc7c0af",
+    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "f07e0f09-f583-4181-a4a8-b73e0b08e5b2",
     "02df9901-b50a-4fef-bd4c-dfcc066424f5",
-    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "c686622c-7087-4376-8601-236756f73171",
     "a59894e8-aab0-4a32-a7ca-9648366f9c15",
     "e76d9719-84d7-445c-a5b8-af62dd09b011",
@@ -131,8 +131,8 @@
     "1eb8ed4a-5b58-465c-b408-ae9ffa74abec",
     "3c73d2ae-56e1-4933-a400-3fc0f3b84585",
     "014c7092-5006-4acf-8e9e-921fbbbd8111",
-    "b984bb10-6090-4ed9-9c5f-0777c8cad514",
     "e1f1e29b-bfe6-4289-9b59-736f45a38994",
+    "b984bb10-6090-4ed9-9c5f-0777c8cad514",
     "3b9a9002-a92f-4af1-b9ef-f987370013b5",
     "926a606d-ed2b-479e-8e38-3117f3bfe9ff",
     "78406b06-dae3-4c68-887e-aaf1805ac34c",
@@ -208,9 +208,9 @@
     "fcbc7760-9aa3-433d-857d-f3ea0771bd3b",
     "0ef86df7-77cc-4d1d-bd3d-a21f5403a68e",
     "5c95f0a7-88ee-4e83-81f4-a336ba5b6460",
+    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "f07e0f09-f583-4181-a4a8-b73e0b08e5b2",
     "02df9901-b50a-4fef-bd4c-dfcc066424f5",
-    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "2256ee12-cb49-4b31-8b4f-bc3db0c7f2dc",
     "7c38fc45-fe19-4adc-a178-1109f219b278",
     "e76d9719-84d7-445c-a5b8-af62dd09b011",
@@ -245,8 +245,8 @@
     "3921b5da-2827-4c09-8175-c7d1dc040614",
     "a5a6ae48-fa10-4ec8-a1f4-b68351b0dd27",
     "f2e82f43-2234-4a26-834f-8c4579d04ece",
-    "a3657a6b-48c1-4311-bccf-7e9cdf307553",
     "76d9ae6a-28bd-43b2-8a1e-08b0942c7662",
+    "a3657a6b-48c1-4311-bccf-7e9cdf307553",
     "34b72928-10ab-4514-9d80-11cc114cbd2e",
     "e3773fce-2bff-4c7c-ba75-0a69901723e8",
     "d4eeca7b-f46e-461a-a4e9-3a53db0bf39e",
@@ -570,7 +570,8 @@
     "ea5baf49-ebc9-4ea6-964e-9cb9de4ef7ae",
     "2e1cd85b-c47d-4424-86f7-1e28a80a09ca",
     "4559a991-e718-42f3-b64b-57fa3fb6bda4",
-    "8b831a2c-01e8-47ae-bc04-78194860b336"
+    "8b831a2c-01e8-47ae-bc04-78194860b336",
+    "64d63d7b-3ae5-4b96-8e70-f2e43b2d493c"
    ]
   },
   {
@@ -647,9 +648,9 @@
     "5c95f0a7-88ee-4e83-81f4-a336ba5b6460",
     "fa2e7ff6-c49f-4947-888b-707cd456be5f",
     "2b4b69d3-eef9-4f4c-9732-cd05ecc7c0af",
+    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "f07e0f09-f583-4181-a4a8-b73e0b08e5b2",
     "02df9901-b50a-4fef-bd4c-dfcc066424f5",
-    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "a59894e8-aab0-4a32-a7ca-9648366f9c15",
     "7c38fc45-fe19-4adc-a178-1109f219b278",
     "e76d9719-84d7-445c-a5b8-af62dd09b011",
@@ -747,9 +748,9 @@
     "0ef86df7-77cc-4d1d-bd3d-a21f5403a68e",
     "5c95f0a7-88ee-4e83-81f4-a336ba5b6460",
     "2b4b69d3-eef9-4f4c-9732-cd05ecc7c0af",
+    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "f07e0f09-f583-4181-a4a8-b73e0b08e5b2",
     "02df9901-b50a-4fef-bd4c-dfcc066424f5",
-    "2a7d1954-6fa0-4654-b5b2-bcbe23e8e647",
     "c686622c-7087-4376-8601-236756f73171",
     "7c38fc45-fe19-4adc-a178-1109f219b278",
     "e76d9719-84d7-445c-a5b8-af62dd09b011",
@@ -1921,7 +1922,14 @@
    "slug": "choosing-long-term-projects",
    "heartCount": 4,
    "publishedAt": "2026-10-21T06:11:24.579Z"
+  },
+  {
+   "id": "64d63d7b-3ae5-4b96-8e70-f2e43b2d493c",
+   "title": "A crash course in fundraising",
+   "slug": "a-crash-course-in-fundraising",
+   "heartCount": 1,
+   "publishedAt": "2026-10-25T12:47:54.849Z"
   }
  ],
- "semanticKey": "22710c050c696291"
+ "semanticKey": "51f389a88e40fd8a"
 }
