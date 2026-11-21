@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-11-14T11:25:51+00:00",
+ "generatedAt": "2026-11-21T12:35:30+00:00",
  "forum": {
   "slug": "newspeak-house-2026-27",
   "endpoint": "https://topic.forum/graphql"
@@ -1947,7 +1947,35 @@
    "slug": "a-crash-course-in-fundraising",
    "heartCount": 5,
    "publishedAt": "2026-10-25T12:47:54.849Z"
+  },
+  {
+   "id": "08516fa9-959d-459d-880a-2cd5c6071a3d",
+   "title": "Civic Tech: a whirlwind tour of the field",
+   "slug": "civic-tech-a-whirlwind-tour-of-the-field",
+   "heartCount": 0,
+   "publishedAt": "2026-11-21T09:26:07.773Z"
+  },
+  {
+   "id": "d2c316b2-8d27-451d-8354-428d29397634",
+   "title": "The People: finding others who work on your topic",
+   "slug": "the-people-finding-others-who-work-on-your-topic",
+   "heartCount": 0,
+   "publishedAt": "2026-11-21T09:26:13.524Z"
+  },
+  {
+   "id": "f258db4d-5579-451c-b7b3-291a8e108eb3",
+   "title": "Foundational layers",
+   "slug": "foundational-layers",
+   "heartCount": 0,
+   "publishedAt": "2026-11-21T09:26:56.885Z"
+  },
+  {
+   "id": "95a17f49-fc43-4343-8d94-ce7f38aff62a",
+   "title": "Working in the open",
+   "slug": "working-in-the-open",
+   "heartCount": 0,
+   "publishedAt": "2026-11-21T09:27:05.229Z"
   }
  ],
- "semanticKey": "4a62d391f039d094"
+ "semanticKey": "4d0e3229c9d670de"
 }
