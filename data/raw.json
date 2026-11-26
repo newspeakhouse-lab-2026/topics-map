@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-11-24T14:49:29+00:00",
+ "generatedAt": "2026-11-26T13:51:09+00:00",
  "forum": {
   "slug": "newspeak-house-2026-27",
   "endpoint": "https://topic.forum/graphql"
@@ -134,6 +134,7 @@
     "1eb8ed4a-5b58-465c-b408-ae9ffa74abec",
     "e1f1e29b-bfe6-4289-9b59-736f45a38994",
     "b984bb10-6090-4ed9-9c5f-0777c8cad514",
+    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "3b9a9002-a92f-4af1-b9ef-f987370013b5",
     "926a606d-ed2b-479e-8e38-3117f3bfe9ff",
     "78406b06-dae3-4c68-887e-aaf1805ac34c",
@@ -149,7 +150,6 @@
     "3921b5da-2827-4c09-8175-c7d1dc040614",
     "f2e82f43-2234-4a26-834f-8c4579d04ece",
     "a3657a6b-48c1-4311-bccf-7e9cdf307553",
-    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "08516fa9-959d-459d-880a-2cd5c6071a3d",
     "c44e75b8-02e4-4d4b-aa48-1c744cdc1af4",
     "e3773fce-2bff-4c7c-ba75-0a69901723e8",
@@ -242,6 +242,7 @@
     "32b42ca7-599c-454a-8737-9c6a46c4e487",
     "1eb8ed4a-5b58-465c-b408-ae9ffa74abec",
     "b984bb10-6090-4ed9-9c5f-0777c8cad514",
+    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "3b9a9002-a92f-4af1-b9ef-f987370013b5",
     "926a606d-ed2b-479e-8e38-3117f3bfe9ff",
     "78406b06-dae3-4c68-887e-aaf1805ac34c",
@@ -257,7 +258,6 @@
     "76d9ae6a-28bd-43b2-8a1e-08b0942c7662",
     "da2c7aeb-f09d-4f35-8b10-43f63dd6faca",
     "34b72928-10ab-4514-9d80-11cc114cbd2e",
-    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "08516fa9-959d-459d-880a-2cd5c6071a3d",
     "e3773fce-2bff-4c7c-ba75-0a69901723e8",
     "d4eeca7b-f46e-461a-a4e9-3a53db0bf39e",
@@ -563,6 +563,7 @@
     "1eb8ed4a-5b58-465c-b408-ae9ffa74abec",
     "b984bb10-6090-4ed9-9c5f-0777c8cad514",
     "5c5e0f82-5f3c-4cef-996a-35e4d7db78d5",
+    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "78406b06-dae3-4c68-887e-aaf1805ac34c",
     "adeb2ea9-9a26-41de-b4f5-2905eba0f828",
     "c9a11119-b5ba-4a32-b4bb-4ac464c52df1",
@@ -822,10 +823,10 @@
     "13ecc126-3d4d-42f5-83ae-06dcb614d1d0",
     "1695da0a-de94-45ad-baf9-dde0b79dc949",
     "47b81316-5858-46e6-a922-36b073905f85",
+    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "a668bbe7-3cc5-429c-8a9e-0e65d9f0dd8f",
     "014c7092-5006-4acf-8e9e-921fbbbd8111",
     "da2c7aeb-f09d-4f35-8b10-43f63dd6faca",
-    "f258db4d-5579-451c-b7b3-291a8e108eb3",
     "08516fa9-959d-459d-880a-2cd5c6071a3d",
     "30626ff7-9041-4448-aecc-465595c45494",
     "95a17f49-fc43-4343-8d94-ce7f38aff62a",
@@ -1978,7 +1979,7 @@
    "id": "f258db4d-5579-451c-b7b3-291a8e108eb3",
    "title": "Foundational layers",
    "slug": "foundational-layers",
-   "heartCount": 3,
+   "heartCount": 4,
    "publishedAt": "2026-11-21T09:26:56.885Z"
   },
   {
